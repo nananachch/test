@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.2.0.0</Version>
-    <Author>Takumi</Author>
+    <Version>0.2.0.1</Version>
+    <Author>nananachch</Author>
     <Name>Diadem Route Helper</Name>
     <Punchline>最寄りの草刈場・採掘場へ自動で矢印を表示。</Punchline>
     <Description>ディアデムなどの採集で使う手動ナビゲーション支援プラグインです。
