@@ -5,14 +5,20 @@ namespace DiademRouteHelper;
 
 internal static class NavigationMath
 {
-    internal static float HorizontalDistance(Vector3 from, Waypoint to)
+    internal static float HorizontalDistance(Vector3 from, Waypoint to) =>
+        HorizontalDistance(from, new Vector3(to.X, to.Y, to.Z));
+
+    internal static float HorizontalDistance(Vector3 from, Vector3 to)
     {
         var dx = to.X - from.X;
         var dz = to.Z - from.Z;
         return MathF.Sqrt((dx * dx) + (dz * dz));
     }
 
-    internal static string WorldDirection(Vector3 from, Waypoint to)
+    internal static string WorldDirection(Vector3 from, Waypoint to) =>
+        WorldDirection(from, new Vector3(to.X, to.Y, to.Z));
+
+    internal static string WorldDirection(Vector3 from, Vector3 to)
     {
         var dx = to.X - from.X;
         var dz = to.Z - from.Z;
