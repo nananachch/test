@@ -7,7 +7,7 @@ namespace DiademRouteHelper;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public List<Waypoint> Waypoints { get; set; } = new();
     public int CurrentWaypointIndex { get; set; }
     public List<TrackedItem> TrackedItems { get; set; } = new();
@@ -15,6 +15,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool OverlayEnabled { get; set; } = true;
     public bool OnlyShowOverlayInRouteTerritory { get; set; } = true;
     public float ArrivalDistance { get; set; } = 6.0f;
+    public bool AutoNearestGatheringPoint { get; set; } = true;
+    public int GatheringPointFilter { get; set; } = 0;
+    public bool DrawWorldArrow { get; set; } = true;
 
     public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }
