@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.0.0</Version>
+    <Author>Takumi</Author>
+    <Name>Diadem Route Helper</Name>
+    <Punchline>手動採集向けのルート案内・距離表示・取得数集計。</Punchline>
+    <Description>ディアデムなどの採集で使う手動ナビゲーション支援プラグインです。
+
+現在地からウェイポイントを登録し、次の地点までの距離と方角を表示します。持ち物の増減を基準値から集計し、セッション取得数と時給換算も確認できます。
+
+自動移動・自動ターゲット・自動採集・自動ルート切替は行いません。
+コマンド: /dnav</Description>
+    <RepoUrl>https://github.com/nananachch/test</RepoUrl>
+    <Tags>gathering;route;diadem;navigation;tracker</Tags>
+  </PropertyGroup>
+</Project>
