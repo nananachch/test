@@ -36,8 +36,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path .\repo | Out-Null
-          $output = '.\DiademRouteHelper\bin\x64\Release\DiademRouteHelper'
-          if (!(Test-Path $output)) { throw "Build output not found: $output" }
+          $output = '.\DiademRouteHelper\bin\Release'
+          if (!(Test-Path "$output\DiademRouteHelper.dll")) { throw "Build output not found: $output" }
           Compress-Archive -Path "$output\*" -DestinationPath .\repo\DiademRouteHelper.zip -Force
 
       - name: Publish package
