@@ -13,6 +13,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
+    concurrency:
+      group: dalamud-package-main
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,14 +41,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path .\repo | Out-Null
           $output = '.\DiademRouteHelper\bin\Release'
           if (!(Test-Path "$output\DiademRouteHelper.dll")) { throw "Build output not found: $output" }
-          Compress-Archive -Path "$output\*" -DestinationPath .\repo\DiademRouteHelper.zip -Force
+          Compress-Archive -Path "$output\*" -DestinationPath "$env:RUNNER_TEMP\DiademRouteHelper.zip" -Force
 
       - name: Publish package
         shell: pwsh
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git reset --hard origin/main
+          New-Item -ItemType Directory -Force -Path .\repo | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\DiademRouteHelper.zip" .\repo\DiademRouteHelper.zip -Force
           git add repo/DiademRouteHelper.zip
           if (git diff --cached --quiet) { exit 0 }
           git commit -m "Build plugin package"
-          git push
+          git push origin main
