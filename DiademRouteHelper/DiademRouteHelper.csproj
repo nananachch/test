@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.2.0.1</Version>
+    <Version>0.3.0.0</Version>
     <Author>nananachch</Author>
-    <Name>Diadem Route Helper</Name>
-    <Punchline>最寄りの草刈場・採掘場へ自動で矢印を表示。</Punchline>
-    <Description>ディアデムなどの採集で使う手動ナビゲーション支援プラグインです。
+    <Name>採取補助</Name>
+    <Punchline>最寄り採集地点・登録ルート・耐久をまとめて案内。</Punchline>
+    <Description>採集向けの手動ナビゲーション支援プラグインです。
 
-現在読み込まれている草刈場・採掘場から最寄りの地点を自動選択し、画面上の矢印、方角、距離で案内します。採取後に地点が消えると、次に近い地点へ自動更新します。手動ウェイポイントと取得数・時給集計も利用できます。
+名称を問わず、現在読み込まれている採集地点から最寄りを自動選択し、キャラクター位置から伸びる矢印、方角、距離で案内します。採集地点をルートへ登録すれば、登録順の周回案内もできます。装備耐久が設定値を下回ると通知します。
 
 自動移動・自動ターゲット・自動採取・キー入力は行いません。
 コマンド: /dnav</Description>
     <RepoUrl>https://github.com/nananachch/test</RepoUrl>
-    <Tags>gathering;route;diadem;navigation;tracker</Tags>
+    <Tags>gathering;route;navigation;durability;tracker</Tags>
   </PropertyGroup>
 </Project>

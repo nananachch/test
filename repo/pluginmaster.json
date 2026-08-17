@@ -1,17 +1,17 @@
 [
   {
     "Author": "nananachch",
-    "Name": "Diadem Route Helper",
+    "Name": "採取補助",
     "InternalName": "DiademRouteHelper",
-    "AssemblyVersion": "0.2.0.1",
-    "Description": "読み込まれているLv?? 草刈場・Lv?? 採掘場から最寄りの地点を自動選択し、画面上の矢印・方角・距離で案内します。採取後は次に近い地点へ自動更新します。自動移動、自動採取、自動ターゲット、キー入力は行いません。",
-    "Punchline": "最寄りの草刈場・採掘場へ自動で矢印を表示。",
+    "AssemblyVersion": "0.3.0.0",
+    "Description": "名称を問わず、読み込まれている採集地点から最寄りを自動選択して矢印・方角・距離で案内します。採集地点を登録したルートの周回案内と、装備耐久低下の通知にも対応します。自動移動、自動採取、自動ターゲット、キー入力は行いません。",
+    "Punchline": "最寄り採集地点・登録ルート・耐久をまとめて案内。",
     "RepoUrl": "https://github.com/nananachch/test",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "DownloadLinkInstall": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
-    "Tags": ["gathering", "route", "diadem", "navigation", "tracker"]
+    "Tags": ["gathering", "route", "navigation", "durability", "tracker"]
   }
 ]
