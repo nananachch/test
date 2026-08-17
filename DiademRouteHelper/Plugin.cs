@@ -1,9 +1,12 @@
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using DiademRouteHelper.Windows;
+using System;
+using System.Linq;
 
 namespace DiademRouteHelper;
 
@@ -17,6 +20,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IGameInventory GameInventory { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+    [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
 
     internal Configuration Configuration { get; }
     internal WindowSystem WindowSystem { get; } = new("DiademRouteHelper");
@@ -56,6 +60,45 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     internal void ToggleMainUi() => mainWindow.Toggle();
+
+    internal GatheringTarget? NearestGatheringTarget
+    {
+        get
+        {
+            if (!Configuration.AutoNearestGatheringPoint)
+                return null;
+
+            var player = ObjectTable.LocalPlayer;
+            if (player is null)
+                return null;
+
+            return ObjectTable.EventObjects
+                .Where(obj => obj.ObjectKind == ObjectKind.GatheringPoint && obj.IsTargetable)
+                .Select(obj => new
+                {
+                    Object = obj,
+                    Name = obj.Name.TextValue,
+                    Distance = NavigationMath.HorizontalDistance(player.Position, obj.Position),
+                })
+                .Where(x => IsAllowedGatheringName(x.Name))
+                .OrderBy(x => x.Distance)
+                .Select(x => new GatheringTarget(x.Name, x.Object.Position, x.Object.BaseId, x.Object.GameObjectId))
+                .FirstOrDefault();
+        }
+    }
+
+    private bool IsAllowedGatheringName(string name)
+    {
+        var isBotany = name.Contains("草刈場", StringComparison.Ordinal);
+        var isMining = name.Contains("採掘場", StringComparison.Ordinal);
+
+        return Configuration.GatheringPointFilter switch
+        {
+            1 => isBotany,
+            2 => isMining,
+            _ => isBotany || isMining,
+        };
+    }
 
     internal Waypoint? CurrentWaypoint
     {
@@ -106,7 +149,7 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.CurrentWaypointIndex = 0;
             return;
         }
-        Configuration.CurrentWaypointIndex = System.Math.Clamp(Configuration.CurrentWaypointIndex, 0, Configuration.Waypoints.Count - 1);
+        Configuration.CurrentWaypointIndex = Math.Clamp(Configuration.CurrentWaypointIndex, 0, Configuration.Waypoints.Count - 1);
     }
 
     private void OnCommand(string command, string args)
