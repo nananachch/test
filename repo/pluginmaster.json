@@ -1,0 +1,17 @@
+[
+  {
+    "Author": "Takumi",
+    "Name": "Diadem Route Helper",
+    "InternalName": "DiademRouteHelper",
+    "AssemblyVersion": "0.1.0.0",
+    "Description": "ディアデムなどの採集向け手動ナビ。現在地を地点登録し、方角・距離・取得数・時給を表示します。自動移動、自動採取、自動ターゲット、自動地点切替は行いません。",
+    "Punchline": "手動採集向けのルート案内・距離表示・取得数集計。",
+    "RepoUrl": "https://github.com/nananachch/test",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "DownloadLinkInstall": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
+    "DownloadLinkUpdate": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
+    "DownloadLinkTesting": "https://raw.githubusercontent.com/nananachch/test/main/repo/DiademRouteHelper.zip",
+    "Tags": ["gathering", "route", "diadem", "navigation", "tracker"]
+  }
+]
