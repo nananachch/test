@@ -1,0 +1,59 @@
+name: Build Crescent Setup Director v0.2.0
+
+on:
+  push:
+    branches: [ csd-build-v020 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Reconstruct source archive
+        shell: cmd
+        run: |
+          copy /b CrescentSetupDirector\source.b64.00+CrescentSetupDirector\source.b64.01+CrescentSetupDirector\source.b64.02+CrescentSetupDirector\source.b64.03+CrescentSetupDirector\source.b64.04 CrescentSetupDirector\source.b64
+          python -c "import base64,pathlib; p=pathlib.Path(r'CrescentSetupDirector/source.b64'); pathlib.Path(r'CrescentSetupDirector/source.tar.gz').write_bytes(base64.b64decode(p.read_text()))"
+          tar -xzf CrescentSetupDirector\source.tar.gz -C CrescentSetupDirector
+
+      - name: Download Dalamud API files
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile "$env:RUNNER_TEMP\dalamud-latest.zip"
+          New-Item -ItemType Directory -Force -Path "$env:AppData\XIVLauncher\addon\Hooks\dev" | Out-Null
+          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud-latest.zip" "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+      - name: Build Release
+        shell: cmd
+        run: |
+          mkdir CrescentSetupDirector\artifact
+          cd CrescentSetupDirector\SOURCE
+          dotnet build CrescentSetupDirector.csproj --configuration Release --nologo > ..\artifact\build.log 2>&1
+          if errorlevel 1 (type ..\artifact\build.log & exit /b 1)
+          type ..\artifact\build.log
+
+      - name: Collect plugin output
+        if: success()
+        shell: cmd
+        run: |
+          python -c "import pathlib,shutil; root=pathlib.Path(r'CrescentSetupDirector/SOURCE/bin/Release'); out=pathlib.Path(r'CrescentSetupDirector/artifact'); files=[p for p in root.rglob('*') if p.is_file() and (p.name.startswith('CrescentSetupDirector.') or p.name=='CrescentSetupDirector.dll')]; assert any(p.name=='CrescentSetupDirector.dll' for p in files), 'DLL not found'; [shutil.copy2(p,out/p.name) for p in files]"
+          dir CrescentSetupDirector\artifact
+
+      - name: Upload build result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CSD-v0.2.0-build
+          path: CrescentSetupDirector/artifact/**
+          if-no-files-found: error
