@@ -3,10 +3,12 @@ name: Build Crescent Setup Director v0.2.0
 on:
   push:
     branches: [ csd-build-v020 ]
+    paths-ignore:
+      - 'CrescentSetupDirector/build-output/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -14,6 +16,12 @@ jobs:
     steps:
       - name: Checkout build branch
         uses: actions/checkout@v5
+
+      - name: Prepare result directory
+        shell: cmd
+        run: |
+          if exist CrescentSetupDirector\artifact rmdir /s /q CrescentSetupDirector\artifact
+          mkdir CrescentSetupDirector\artifact
 
       - name: Install .NET 10
         uses: actions/setup-dotnet@v5
@@ -37,10 +45,12 @@ jobs:
       - name: Build Release
         shell: cmd
         run: |
-          mkdir CrescentSetupDirector\artifact
           cd CrescentSetupDirector\SOURCE
           dotnet build CrescentSetupDirector.csproj --configuration Release --nologo > ..\artifact\build.log 2>&1
-          if errorlevel 1 (type ..\artifact\build.log & exit /b 1)
+          if errorlevel 1 echo FAILED>..\artifact\build-status.txt
+          if errorlevel 1 type ..\artifact\build.log
+          if errorlevel 1 exit /b 1
+          echo SUCCESS>..\artifact\build-status.txt
           type ..\artifact\build.log
 
       - name: Collect plugin output
@@ -49,6 +59,20 @@ jobs:
         run: |
           python -c "import pathlib,shutil; root=pathlib.Path(r'CrescentSetupDirector/SOURCE/bin/Release'); out=pathlib.Path(r'CrescentSetupDirector/artifact'); files=[p for p in root.rglob('*') if p.is_file() and (p.name.startswith('CrescentSetupDirector.') or p.name=='CrescentSetupDirector.dll')]; assert any(p.name=='CrescentSetupDirector.dll' for p in files), 'DLL not found'; [shutil.copy2(p,out/p.name) for p in files]"
           dir CrescentSetupDirector\artifact
+
+      - name: Publish build result to branch
+        if: always()
+        shell: cmd
+        run: |
+          if exist CrescentSetupDirector\build-output rmdir /s /q CrescentSetupDirector\build-output
+          mkdir CrescentSetupDirector\build-output
+          xcopy /e /i /y CrescentSetupDirector\artifact CrescentSetupDirector\build-output
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CrescentSetupDirector/build-output
+          git diff --cached --quiet && exit /b 0
+          git commit -m "CSD v0.2.0 build result [skip ci]"
+          git push origin HEAD:csd-build-v020
 
       - name: Upload build result
         if: always()
