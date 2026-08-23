@@ -89,7 +89,7 @@ replacements = [
         if (!config.RestoreOriginalSupportAfterFate || originalSupportJob == 0 || originalSupportJob == phantom.CurrentJobId)
             return;
         pendingRestoreSupportJob = originalSupportJob;
-        pendingRestoreFateId = waitForFateEnd ? activeFate?.FateId ?? 0 : 0;
+        pendingRestoreFateId = waitForFateEnd ? activeFate?.FateId ?? (ushort)0 : (ushort)0;
         restoreAttempts = 0;
         restoreSafeSince = default;
         diagnostics.Write($"[RESTORE-QUEUED] reason={reason} fate={pendingRestoreFateId} support={pendingRestoreSupportJob}");
