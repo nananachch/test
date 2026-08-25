@@ -37,6 +37,7 @@ jobs:
           python -c "import base64,pathlib; p=pathlib.Path(r'CrescentSetupDirector/source.b64'); pathlib.Path(r'CrescentSetupDirector/source.tar.gz').write_bytes(base64.b64decode(p.read_text()))"
           tar -xzf CrescentSetupDirector\source.tar.gz -C CrescentSetupDirector
           python CrescentSetupDirector\patch_after_extract.py
+          copy /y CrescentSetupDirector\supplement\PhantomJobBridge.cs CrescentSetupDirector\SOURCE\PhantomJobBridge.cs
 
       - name: Run regression tests
         shell: cmd
