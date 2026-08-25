@@ -32,16 +32,20 @@ def apply_payload(prefix: str, expected_sha256: str, label: str) -> None:
     print(f"Applied {label}: {len(members)} files, sha256={actual}")
 
 
-# Restore every unchanged source file first because the historical base archive was incomplete.
 apply_payload(
     "supplement_payload",
     "b4eb55890e8205fd36bf62065fa258ebaa00540a4e2b68e5354a06b0925f39d1",
     "CSD v0.2.1 supplement payload",
 )
 
-# Overlay the exact changed v0.2.1 files last.
 apply_payload(
     "patch_payload",
     "d1e11589703c92be2e50fd14b30791c73d537f2ed2751588963feac5ff6d340e",
     "CSD v0.2.1 patch payload",
+)
+
+apply_payload(
+    "hotfix_payload",
+    "e43a2e447ed28afe4197c6cb535bf2020231d7db01b5294871a36c0f07d42b6d",
+    "CSD v0.2.1 compile hotfix payload",
 )
