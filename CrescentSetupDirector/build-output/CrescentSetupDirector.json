@@ -1,0 +1,22 @@
+{
+  "Author": "nananachch",
+  "Name": "Crescent Setup Director",
+  "InternalName": "CrescentSetupDirector",
+  "AssemblyVersion": "0.2.1.0",
+  "Description": "クレセントアイルの通常FATE、クリティカルエンカウント、マジックポットを自動検出し、排他的な状態機械で管理します。通常FATEは範囲内進入で自動開始し、自動降車、警戒、こうげきのうた、選択サポート、FATE終了後の元サポート復元を行います。CEは事前ベルと暗転明けを検出します。マジックポットは現在地で4ルートを判定し、戦闘終了を見て次フェーズへ自動進行します。初期状態はDRY RUNです。",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "occult-crescent",
+    "phantom-job",
+    "setup",
+    "rsr",
+    "bmr"
+  ],
+  "DalamudApiLevel": 15,
+  "LoadRequiredState": 0,
+  "LoadSync": false,
+  "CanUnloadAsync": false,
+  "LoadPriority": 0,
+  "Punchline": "通常FATE・CE・マジックポットを自動検出し、戦闘前セットアップを段階制御します。",
+  "AcceptsFeedback": true
+}
