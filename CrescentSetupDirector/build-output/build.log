@@ -1,5 +1,5 @@
   Determining projects to restore...
-  Restored D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj (in 971 ms).
+  Restored D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj (in 718 ms).
   Dalamud.NET.Sdk: root at C:\Users\runneradmin\AppData\Roaming\XIVLauncher\addon\Hooks\dev\
 D:\a\test\test\CrescentSetupDirector\SOURCE\CombatAutomationBridge.cs(138,66): error CS0165: Use of unassigned local variable 'error' [D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj]
 D:\a\test\test\CrescentSetupDirector\SOURCE\CombatAutomationBridge.cs(153,68): error CS0165: Use of unassigned local variable 'error' [D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj]
@@ -15,4 +15,4 @@ D:\a\test\test\CrescentSetupDirector\SOURCE\SetupEngine.cs(1118,65): error CS010
     0 Warning(s)
     4 Error(s)
 
-Time Elapsed 00:00:13.13
+Time Elapsed 00:00:14.30
