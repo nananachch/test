@@ -1,109 +1,31 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import tarfile
 from pathlib import Path
 
-p = Path(__file__).resolve().parent / "SOURCE" / "SetupEngine.cs"
-s = p.read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parent
+SOURCE = ROOT / "SOURCE"
+EXPECTED_SHA256 = "d1e11589703c92be2e50fd14b30791c73d537f2ed2751588963feac5ff6d340e"
 
-replacements = [
-    (
-'''    public void EmergencyStop(string reason = "手動緊急停止")
-    {
-        diagnostics.Write($"[STOP] {reason}");
-        automation.ResumeAll(reason);
-        ClearActiveWorkflow();
-    }
-''',
-'''    public void EmergencyStop(string reason = "手動緊急停止")
-    {
-        diagnostics.Write($"[STOP] {reason}");
-        if (workflow == WorkflowKind.NormalFate)
-            QueueOriginalSupportRestore(waitForFateEnd: false, "emergency-stop");
-        automation.ResumeAll(reason);
-        ClearActiveWorkflow();
-    }
-'''),
-    (
-'''    private void TryAutoStartNormalFate()
-    {
-        if (!config.AutoStartInFateRange || !phantom.IsInOccultCrescent)
-''',
-'''    private void TryAutoStartNormalFate()
-    {
-        if (pendingRestoreSupportJob != 0)
-            return;
-        if (!config.AutoStartInFateRange || !phantom.IsInOccultCrescent)
-'''),
-    (
-'''    private void TryAutoStartCriticalEncounter()
-    {
-        if (!config.CeAutoSetupEnabled || !phantom.IsInOccultCrescent)
-''',
-'''    private void TryAutoStartCriticalEncounter()
-    {
-        if (pendingRestoreSupportJob != 0)
-            return;
-        if (!config.CeAutoSetupEnabled || !phantom.IsInOccultCrescent)
-'''),
-    (
-'''            if (config.RestoreOriginalSupportAfterFate && originalSupportJob != 0 && originalSupportJob != phantom.CurrentJobId)
-            {
-                pendingRestoreSupportJob = originalSupportJob;
-                pendingRestoreFateId = activeFate?.FateId ?? 0;
-                restoreAttempts = 0;
-                restoreSafeSince = default;
-                diagnostics.Write($"[RESTORE-QUEUED] fate={pendingRestoreFateId} support={pendingRestoreSupportJob}");
-            }
-''',
-'''            QueueOriginalSupportRestore(waitForFateEnd: true, "normal-fate-complete");
-'''),
-    (
-'''    private void TickPendingSupportRestore()
-    {
-        if (pendingRestoreSupportJob == 0 || workflow != WorkflowKind.None && workflow != WorkflowKind.NormalFate)
-            return;
-''',
-'''    private void TickPendingSupportRestore()
-    {
-        // Never change support jobs while any setup workflow owns control.
-        if (pendingRestoreSupportJob == 0 || workflow != WorkflowKind.None)
-            return;
-'''),
-    (
-'''    private void Fail(string reason, string? key = null)
-    {
-        if (state == SetupState.Failed) return;
-        failureReason = reason;
-''',
-'''    private void Fail(string reason, string? key = null)
-    {
-        if (state == SetupState.Failed) return;
-        if (workflow == WorkflowKind.NormalFate)
-            QueueOriginalSupportRestore(waitForFateEnd: false, "normal-fate-failed");
-        failureReason = reason;
-'''),
-    (
-'''    private void ClearActiveWorkflow()
-    {
-''',
-'''    private void QueueOriginalSupportRestore(bool waitForFateEnd, string reason)
-    {
-        if (!config.RestoreOriginalSupportAfterFate || originalSupportJob == 0 || originalSupportJob == phantom.CurrentJobId)
-            return;
-        pendingRestoreSupportJob = originalSupportJob;
-        pendingRestoreFateId = waitForFateEnd ? activeFate?.FateId ?? (ushort)0 : (ushort)0;
-        restoreAttempts = 0;
-        restoreSafeSince = default;
-        diagnostics.Write($"[RESTORE-QUEUED] reason={reason} fate={pendingRestoreFateId} support={pendingRestoreSupportJob}");
-    }
+parts = sorted(ROOT.glob("patch_payload.b64.*"))
+if not parts:
+    raise SystemExit("CSD v0.2.1 patch payload chunks were not found")
 
-    private void ClearActiveWorkflow()
-    {
-'''),
-]
+encoded = "".join(part.read_text(encoding="ascii").strip() for part in parts)
+payload = base64.b64decode(encoded, validate=True)
+actual = hashlib.sha256(payload).hexdigest()
+if actual != EXPECTED_SHA256:
+    raise SystemExit(f"CSD v0.2.1 patch payload SHA-256 mismatch: {actual}")
 
-for old, new in replacements:
-    if old not in s:
-        raise SystemExit(f"Patch anchor not found: {old.splitlines()[0]}")
-    s = s.replace(old, new, 1)
+with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+    members = archive.getmembers()
+    for member in members:
+        path = Path(member.name)
+        if path.is_absolute() or ".." in path.parts:
+            raise SystemExit(f"Unsafe patch member: {member.name}")
+    archive.extractall(SOURCE)
 
-p.write_text(s, encoding="utf-8")
-print("Applied final support-restore transaction patch")
+print(f"Applied CSD v0.2.1 patch payload: {len(members)} files, sha256={actual}")
