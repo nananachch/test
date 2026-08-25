@@ -27,8 +27,9 @@ jobs:
         run: |
           if exist CrescentSetupDirector\v022\SOURCE rmdir /s /q CrescentSetupDirector\v022\SOURCE
           mkdir CrescentSetupDirector\v022\SOURCE
-          python -c "import base64,hashlib,pathlib; d=pathlib.Path(r'CrescentSetupDirector/v022/chunks'); parts=sorted(d.glob('source_gaze_safe.b64.*')); assert len(parts)==9,[p.name for p in parts]; encoded=''.join(p.read_text(encoding='ascii').strip() for p in parts); raw=base64.b64decode(encoded,validate=True); actual=hashlib.sha256(raw).hexdigest(); expected='148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593'; assert actual==expected,(actual,expected); pathlib.Path(r'CrescentSetupDirector/v022/source.tar.gz').write_bytes(raw); print('SOURCE_SHA256='+actual)"
+          python -c "import base64,hashlib,pathlib; d=pathlib.Path(r'CrescentSetupDirector/v022/chunks'); parts=sorted(d.glob('source_gaze_safe.b64.*')); assert len(parts)==9,[p.name for p in parts]; encoded=''.join(p.read_text(encoding='ascii').strip() for p in parts); raw=base64.b64decode(encoded,validate=True); actual=hashlib.sha256(raw).hexdigest(); expected='148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593'; assert actual==expected,(actual,expected); pathlib.Path(r'CrescentSetupDirector/v022/source.tar.gz').write_bytes(raw); print('BASE_SOURCE_SHA256='+actual)"
           tar -xzf CrescentSetupDirector\v022\source.tar.gz -C CrescentSetupDirector\v022\SOURCE
+          python CrescentSetupDirector\v022\apply_compile_hotfix.py
 
       - name: Run 28 regression tests
         shell: cmd
@@ -53,14 +54,16 @@ jobs:
           dotnet restore CrescentSetupDirector.csproj --locked-mode --nologo > ..\artifact\restore.log 2>&1 || (type ..\artifact\restore.log & exit /b 1)
           dotnet build CrescentSetupDirector.csproj --configuration Release --no-restore --nologo > ..\artifact\build.log 2>&1 || (type ..\artifact\build.log & exit /b 1)
           type ..\artifact\build.log
+          tar -czf ..\artifact\SOURCE_v0.2.2.tar.gz .
 
       - name: Collect and verify plugin output
         shell: cmd
         run: |
-          python -c "import hashlib,json,pathlib,shutil; root=pathlib.Path(r'CrescentSetupDirector/v022/SOURCE/bin/Release'); out=pathlib.Path(r'CrescentSetupDirector/v022/artifact'); files=[p for p in root.rglob('*') if p.is_file() and (p.name=='CrescentSetupDirector.dll' or p.name.startswith('CrescentSetupDirector.'))]; assert any(p.name=='CrescentSetupDirector.dll' for p in files),'DLL not found'; [shutil.copy2(p,out/p.name) for p in files]; dll=out/'CrescentSetupDirector.dll'; proof={'dll':dll.name,'size':dll.stat().st_size,'sha256':hashlib.sha256(dll.read_bytes()).hexdigest(),'source_sha256':'148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593','regression':'28/28'}; (out/'BUILD_PROOF.json').write_text(json.dumps(proof,indent=2),encoding='utf-8'); shutil.copy2(r'CrescentSetupDirector/v022/test.log',out/'test.log'); shutil.copy2(r'CrescentSetupDirector/v022/source.tar.gz',out/'SOURCE_v0.2.2.tar.gz'); print(json.dumps(proof,indent=2))"
+          python -c "import hashlib,json,pathlib,shutil; root=pathlib.Path(r'CrescentSetupDirector/v022/SOURCE/bin/Release'); out=pathlib.Path(r'CrescentSetupDirector/v022/artifact'); files=[p for p in root.rglob('*') if p.is_file() and (p.name=='CrescentSetupDirector.dll' or p.name.startswith('CrescentSetupDirector.'))]; assert any(p.name=='CrescentSetupDirector.dll' for p in files),'DLL not found'; [shutil.copy2(p,out/p.name) for p in files]; dll=out/'CrescentSetupDirector.dll'; source=out/'SOURCE_v0.2.2.tar.gz'; proof={'dll':dll.name,'size':dll.stat().st_size,'sha256':hashlib.sha256(dll.read_bytes()).hexdigest(),'base_source_sha256':'148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593','final_source_archive_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'regression':'28/28'}; (out/'BUILD_PROOF.json').write_text(json.dumps(proof,indent=2),encoding='utf-8'); shutil.copy2(r'CrescentSetupDirector/v022/test.log',out/'test.log'); print(json.dumps(proof,indent=2))"
           dir CrescentSetupDirector\v022\artifact
 
       - name: Upload verified build result
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CSD-v0.2.2-gaze-safe-build
