@@ -1,86 +1,13 @@
 name: Build Crescent Setup Director v0.2.1
 
 on:
-  push:
-    branches: [ csd-build-v020 ]
-    paths-ignore:
-      - 'CrescentSetupDirector/build-output/**'
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
-    runs-on: windows-2022
+  archived:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout build branch
-        uses: actions/checkout@v5
-
-      - name: Prepare result directory
-        shell: cmd
-        run: |
-          if exist CrescentSetupDirector\artifact rmdir /s /q CrescentSetupDirector\artifact
-          mkdir CrescentSetupDirector\artifact
-
-      - name: Install .NET 10
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Reconstruct exact v0.2.1 source
-        shell: cmd
-        run: |
-          if exist CrescentSetupDirector\SOURCE rmdir /s /q CrescentSetupDirector\SOURCE
-          mkdir CrescentSetupDirector\SOURCE
-          python CrescentSetupDirector\patch_after_extract.py
-
-      - name: Run regression tests
-        shell: cmd
-        run: |
-          cd CrescentSetupDirector\SOURCE
-          for %%F in (tests\*.py) do python "%%F" || exit /b 1
-
-      - name: Download Dalamud API files
-        shell: cmd
-        run: |
-          python -c "import os,pathlib,urllib.request,zipfile; z=pathlib.Path(os.environ['RUNNER_TEMP'])/'dalamud-latest.zip'; urllib.request.urlretrieve('https://goatcorp.github.io/dalamud-distrib/latest.zip',z); d=pathlib.Path(os.environ['APPDATA'])/'XIVLauncher'/'addon'/'Hooks'/'dev'; d.mkdir(parents=True,exist_ok=True); zipfile.ZipFile(z).extractall(d)"
-
-      - name: Build Release
-        shell: cmd
-        run: |
-          cd CrescentSetupDirector\SOURCE
-          dotnet build CrescentSetupDirector.csproj --configuration Release --nologo > ..\artifact\build.log 2>&1 || (echo FAILED>..\artifact\build-status.txt & type ..\artifact\build.log & exit /b 1)
-          echo SUCCESS>..\artifact\build-status.txt
-          type ..\artifact\build.log
-
-      - name: Collect plugin output
-        if: success()
-        shell: cmd
-        run: |
-          python -c "import pathlib,shutil; root=pathlib.Path(r'CrescentSetupDirector/SOURCE/bin/Release'); out=pathlib.Path(r'CrescentSetupDirector/artifact'); files=[p for p in root.rglob('*') if p.is_file() and (p.name.startswith('CrescentSetupDirector.') or p.name=='CrescentSetupDirector.dll')]; assert any(p.name=='CrescentSetupDirector.dll' for p in files), 'DLL not found'; [shutil.copy2(p,out/p.name) for p in files]"
-          dir CrescentSetupDirector\artifact
-
-      - name: Publish build result to branch
-        if: always() && github.event_name == 'push'
-        shell: cmd
-        run: |
-          if exist CrescentSetupDirector\build-output rmdir /s /q CrescentSetupDirector\build-output
-          mkdir CrescentSetupDirector\build-output
-          xcopy /e /i /y CrescentSetupDirector\artifact CrescentSetupDirector\build-output
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CrescentSetupDirector/build-output
-          git diff --cached --quiet && exit /b 0
-          git commit -m "CSD v0.2.1 build result [skip ci]"
-          git push origin HEAD:csd-build-v020
-
-      - name: Upload build result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: CSD-v0.2.1-build
-          path: CrescentSetupDirector/artifact/**
-          if-no-files-found: error
+      - run: echo "CSD v0.2.1 verified build archived."
