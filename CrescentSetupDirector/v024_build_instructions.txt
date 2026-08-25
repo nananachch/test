@@ -1,0 +1,1 @@
+Workflow reconstructs source by concatenating v024_source_payload.b64.00 through .07, verifies SHA-256, extracts, runs all tests, restores packages with lock file, and builds Release.
