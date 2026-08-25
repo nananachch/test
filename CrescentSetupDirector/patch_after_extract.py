@@ -45,7 +45,7 @@ apply_payload(
 )
 
 apply_payload(
-    "hotfix_payload",
+    "hotfix2_payload",
     "e43a2e447ed28afe4197c6cb535bf2020231d7db01b5294871a36c0f07d42b6d",
     "CSD v0.2.1 compile hotfix payload",
 )
