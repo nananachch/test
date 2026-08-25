@@ -1,4 +1,4 @@
-name: Build Crescent Setup Director v0.2.0
+name: Build Crescent Setup Director v0.2.1
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Reconstruct and patch source
+      - name: Reconstruct v0.2.1 source
         shell: cmd
         run: |
           copy /b CrescentSetupDirector\source.b64.00+CrescentSetupDirector\source.b64.01+CrescentSetupDirector\source.b64.02+CrescentSetupDirector\source.b64.03+CrescentSetupDirector\source.b64.04 CrescentSetupDirector\source.b64
@@ -38,12 +38,16 @@ jobs:
           tar -xzf CrescentSetupDirector\source.tar.gz -C CrescentSetupDirector
           python CrescentSetupDirector\patch_after_extract.py
 
-      - name: Download Dalamud API files
-        shell: pwsh
+      - name: Run regression tests
+        shell: cmd
         run: |
-          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile "$env:RUNNER_TEMP\dalamud-latest.zip"
-          New-Item -ItemType Directory -Force -Path "$env:AppData\XIVLauncher\addon\Hooks\dev" | Out-Null
-          Expand-Archive -Force "$env:RUNNER_TEMP\dalamud-latest.zip" "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          cd CrescentSetupDirector\SOURCE
+          for %%F in (tests\*.py) do python "%%F" || exit /b 1
+
+      - name: Download Dalamud API files
+        shell: cmd
+        run: |
+          python -c "import os,pathlib,urllib.request,zipfile; z=pathlib.Path(os.environ['RUNNER_TEMP'])/'dalamud-latest.zip'; urllib.request.urlretrieve('https://goatcorp.github.io/dalamud-distrib/latest.zip',z); d=pathlib.Path(os.environ['APPDATA'])/'XIVLauncher'/'addon'/'Hooks'/'dev'; d.mkdir(parents=True,exist_ok=True); zipfile.ZipFile(z).extractall(d)"
 
       - name: Build Release
         shell: cmd
@@ -74,13 +78,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CrescentSetupDirector/build-output
           git diff --cached --quiet && exit /b 0
-          git commit -m "CSD v0.2.0 PR recovery build result [skip ci]"
+          git commit -m "CSD v0.2.1 build result [skip ci]"
           git push origin HEAD:csd-build-v020
 
       - name: Upload build result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CSD-v0.2.0-build
+          name: CSD-v0.2.1-build
           path: CrescentSetupDirector/artifact/**
           if-no-files-found: error
