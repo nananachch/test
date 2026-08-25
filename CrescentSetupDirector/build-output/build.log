@@ -1,0 +1,12 @@
+  Determining projects to restore...
+  Restored D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj (in 811 ms).
+  Dalamud.NET.Sdk: root at C:\Users\runneradmin\AppData\Roaming\XIVLauncher\addon\Hooks\dev\
+CSC : error CS2015: 'D:\a\test\test\CrescentSetupDirector\SOURCE\MainJobBridge.cs' is a binary file instead of a text file [D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj]
+
+Build FAILED.
+
+CSC : error CS2015: 'D:\a\test\test\CrescentSetupDirector\SOURCE\MainJobBridge.cs' is a binary file instead of a text file [D:\a\test\test\CrescentSetupDirector\SOURCE\CrescentSetupDirector.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:09.95
