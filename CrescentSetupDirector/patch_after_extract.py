@@ -8,24 +8,40 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "SOURCE"
-EXPECTED_SHA256 = "d1e11589703c92be2e50fd14b30791c73d537f2ed2751588963feac5ff6d340e"
 
-parts = sorted(ROOT.glob("patch_payload.b64.*"))
-if not parts:
-    raise SystemExit("CSD v0.2.1 patch payload chunks were not found")
 
-encoded = "".join(part.read_text(encoding="ascii").strip() for part in parts)
-payload = base64.b64decode(encoded, validate=True)
-actual = hashlib.sha256(payload).hexdigest()
-if actual != EXPECTED_SHA256:
-    raise SystemExit(f"CSD v0.2.1 patch payload SHA-256 mismatch: {actual}")
+def apply_payload(prefix: str, expected_sha256: str, label: str) -> None:
+    parts = sorted(ROOT.glob(f"{prefix}.b64.*"))
+    if not parts:
+        raise SystemExit(f"{label} chunks were not found")
 
-with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
-    members = archive.getmembers()
-    for member in members:
-        path = Path(member.name)
-        if path.is_absolute() or ".." in path.parts:
-            raise SystemExit(f"Unsafe patch member: {member.name}")
-    archive.extractall(SOURCE)
+    encoded = "".join(part.read_text(encoding="ascii").strip() for part in parts)
+    payload = base64.b64decode(encoded, validate=True)
+    actual = hashlib.sha256(payload).hexdigest()
+    if actual != expected_sha256:
+        raise SystemExit(f"{label} SHA-256 mismatch: {actual}")
 
-print(f"Applied CSD v0.2.1 patch payload: {len(members)} files, sha256={actual}")
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        members = archive.getmembers()
+        for member in members:
+            path = Path(member.name)
+            if path.is_absolute() or ".." in path.parts:
+                raise SystemExit(f"Unsafe payload member: {member.name}")
+        archive.extractall(SOURCE)
+
+    print(f"Applied {label}: {len(members)} files, sha256={actual}")
+
+
+# Restore every unchanged source file first because the historical base archive was incomplete.
+apply_payload(
+    "supplement_payload",
+    "b4eb55890e8205fd36bf62065fa258ebaa00540a4e2b68e5354a06b0925f39d1",
+    "CSD v0.2.1 supplement payload",
+)
+
+# Overlay the exact changed v0.2.1 files last.
+apply_payload(
+    "patch_payload",
+    "d1e11589703c92be2e50fd14b30791c73d537f2ed2751588963feac5ff6d340e",
+    "CSD v0.2.1 patch payload",
+)
