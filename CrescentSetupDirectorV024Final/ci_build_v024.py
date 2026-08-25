@@ -112,7 +112,7 @@ def main() -> None:
 
     # Package the exact cleaned source tree that was tested and built.
     fixed_source_zip = ARTIFACT / "source_v0.2.4_fixed.zip"
-    with zipfile.ZipFile(fixed_source_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+    with zipfile.ZipFile(fixed_source_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9, strict_timestamps=False) as zf:
         for p in sorted(SOURCE.rglob("*")):
             rel = p.relative_to(SOURCE)
             if p.is_file() and not any(part in {"bin", "obj", "__pycache__"} for part in rel.parts):
