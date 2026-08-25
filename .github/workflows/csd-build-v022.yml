@@ -27,7 +27,7 @@ jobs:
         run: |
           if exist CrescentSetupDirector\v022\SOURCE rmdir /s /q CrescentSetupDirector\v022\SOURCE
           mkdir CrescentSetupDirector\v022\SOURCE
-          python -c "import base64,hashlib,pathlib; p=pathlib.Path(r'CrescentSetupDirector/v022/source_gaze_safe.tar.gz.b64'); raw=base64.b64decode(p.read_text(encoding='ascii'),validate=True); actual=hashlib.sha256(raw).hexdigest(); expected='148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593'; assert actual==expected,(actual,expected); pathlib.Path(r'CrescentSetupDirector/v022/source.tar.gz').write_bytes(raw); print('SOURCE_SHA256='+actual)"
+          python -c "import base64,hashlib,pathlib; d=pathlib.Path(r'CrescentSetupDirector/v022/chunks'); parts=sorted(d.glob('source_gaze_safe.b64.*')); assert len(parts)==9,[p.name for p in parts]; encoded=''.join(p.read_text(encoding='ascii').strip() for p in parts); raw=base64.b64decode(encoded,validate=True); actual=hashlib.sha256(raw).hexdigest(); expected='148d291d483069e188f8440484c4f6a685dccc814799644d4e43ade19807c593'; assert actual==expected,(actual,expected); pathlib.Path(r'CrescentSetupDirector/v022/source.tar.gz').write_bytes(raw); print('SOURCE_SHA256='+actual)"
           tar -xzf CrescentSetupDirector\v022\source.tar.gz -C CrescentSetupDirector\v022\SOURCE
 
       - name: Run 28 regression tests
