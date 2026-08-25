@@ -62,6 +62,15 @@ def main() -> None:
     with tarfile.open(archive, "r:gz") as tf:
         tf.extractall(WORK)
 
+    # Source hygiene patch: the staged archive contained one unused private field.
+    # Remove it before tests/build so the verified source produces zero warnings.
+    setup_engine = SOURCE / "SetupEngine.cs"
+    setup_text = setup_engine.read_text(encoding="utf-8")
+    unused_field = "    private DateTime pendingBellAcceptedUtc;\n"
+    patch_applied = unused_field in setup_text
+    if patch_applied:
+        setup_engine.write_text(setup_text.replace(unused_field, ""), encoding="utf-8")
+
     # Dalamud API development files.
     latest = WORK / "dalamud-latest.zip"
     urllib.request.urlretrieve("https://goatcorp.github.io/dalamud-distrib/latest.zip", latest)
@@ -101,13 +110,23 @@ def main() -> None:
             p = matches[0]
         shutil.copy2(p, PLUGIN / name)
 
-    shutil.copy2(archive, ARTIFACT / archive.name)
-    shutil.copy2(REPO / "source_v0.2.4.sha256", ARTIFACT / "source_v0.2.4.sha256")
+    # Package the exact cleaned source tree that was tested and built.
+    fixed_source_zip = ARTIFACT / "source_v0.2.4_fixed.zip"
+    with zipfile.ZipFile(fixed_source_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for p in sorted(SOURCE.rglob("*")):
+            rel = p.relative_to(SOURCE)
+            if p.is_file() and not any(part in {"bin", "obj", "__pycache__"} for part in rel.parts):
+                zf.write(p, Path("source") / rel)
+
+    shutil.copy2(archive, ARTIFACT / "input_source_v0.2.4.tar.gz")
+    shutil.copy2(REPO / "source_v0.2.4.sha256", ARTIFACT / "input_source_v0.2.4.sha256")
     build_text = (LOGS / "build.log").read_text(encoding="utf-8", errors="replace")
     proof = {
         "version": "0.2.4",
         "target": "net10.0-windows / Dalamud API 15",
-        "source_sha256": actual,
+        "input_source_sha256": actual,
+        "source_hygiene_patch_applied": patch_applied,
+        "fixed_source_zip_sha256": sha256(fixed_source_zip),
         "test_count": len(tests),
         "tests_passed": len(tests),
         "build_zero_errors": "0 Error(s)" in build_text,
