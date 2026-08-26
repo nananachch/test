@@ -55,12 +55,16 @@ def main() -> None:
 
     tests = sorted((SOURCE / 'tests').glob('*.py'))
     test_outputs: list[str] = []
+    test_env = os.environ.copy()
+    test_env.update({'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8'})
     for test in tests:
         proc = subprocess.run([sys.executable, str(test)], cwd=SOURCE, text=True,
+                              encoding='utf-8', errors='replace', env=test_env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         test_outputs.append(f'===== {test.name} =====\n{proc.stdout}')
         if proc.returncode:
             (LOGS / 'regression-tests.log').write_text('\n'.join(test_outputs), encoding='utf-8')
+            print(proc.stdout)
             raise SystemExit(f'regression test failed: {test.name}')
     (LOGS / 'regression-tests.log').write_text('\n'.join(test_outputs), encoding='utf-8')
 
