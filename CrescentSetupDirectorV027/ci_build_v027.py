@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request, zipfile
+import base64, hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request, zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -44,10 +44,10 @@ def main() -> None:
     PLUGIN.mkdir(parents=True)
     REPORTS.mkdir(parents=True)
 
-    packaged_source = HERE / 'source_v0.2.7.tar.gz'
-    if not packaged_source.exists():
-        raise SystemExit('packaged source archive missing')
-    shutil.copy2(packaged_source, SOURCE_ARCHIVE)
+    chunks = sorted((HERE / 'chunks').glob('source_v0.2.7.b64.*'))
+    if not chunks:
+        raise SystemExit('source archive chunks missing')
+    SOURCE_ARCHIVE.write_bytes(base64.b64decode(''.join(x.read_text(encoding='ascii').strip() for x in chunks)))
     if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256:
         raise SystemExit('source archive SHA-256 mismatch')
     with tarfile.open(SOURCE_ARCHIVE, 'r:gz') as tf:
