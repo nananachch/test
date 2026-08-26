@@ -61,7 +61,7 @@ def main() -> None:
     project=SOURCE/'CrescentSetupDirector.csproj'
     run(['dotnet','--info'],SOURCE,LOGS/'dotnet-info.log',env)
     run(['dotnet','restore',str(project),'--locked-mode'],SOURCE,LOGS/'restore.log',env)
-    build_log=run(['dotnet','build',str(project),'-c','Release','--no-restore'],SOURCE,LOGS/'build.log',env)
+    build_log=run(['dotnet','build',str(project),'-c','Release','--no-restore','-p:NoWarn=CS0414'],SOURCE,LOGS/'build.log',env)
 
     candidates=[p for p in SOURCE.rglob('CrescentSetupDirector.dll') if 'obj' not in p.parts]
     if not candidates: raise SystemExit('CrescentSetupDirector.dll was not produced')
