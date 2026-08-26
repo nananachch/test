@@ -1,0 +1,35 @@
+name: Build Crescent Setup Director v0.2.6
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'CrescentSetupDirectorV026/**'
+      - '.github/workflows/csd-build-v026.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build and verify
+        shell: cmd
+        run: python CrescentSetupDirectorV026\ci_build_v026.py
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CSD-v0.2.6-verified
+          path: CrescentSetupDirectorV026/build-artifact
+          if-no-files-found: error
+          retention-days: 7
