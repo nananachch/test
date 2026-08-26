@@ -10,9 +10,9 @@ LOGS = ART / 'LOGS'
 PLUGIN = ART / 'PLUGIN_FILES'
 REPORTS = ART / 'REPORTS'
 VERSION = '0.2.8'
-BUILD_ID = 'CSD_V028_API15_NET10_GLOBAL_BUFF_RESTORE_20260826_R1'
+BUILD_ID = 'CSD_V028_API15_NET10_CE_POT_PHASE_THRESHOLD_20260826_R3'
 SOURCE_ARCHIVE = WORK / 'source_v0.2.8.tar.gz'
-SOURCE_ARCHIVE_SHA256 = '5da7dcdf2d93d13c79aec42b846911f09b1ee8d1c2cd1b8092e0210f7ba34832'
+SOURCE_ARCHIVE_SHA256 = '9bc182d4efd532c8f92a5d9e43866f43abab38f1f200e26cd9fc5a3fc0daab67'
 
 def sha(path: Path) -> str:
     h = hashlib.sha256()
@@ -38,7 +38,7 @@ def main() -> None:
     if not chunks: raise SystemExit('source archive chunks missing')
     SOURCE_ARCHIVE.write_bytes(base64.b64decode(''.join(x.read_text(encoding='ascii').strip() for x in chunks)))
     if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256: raise SystemExit('source archive SHA-256 mismatch')
-    with tarfile.open(SOURCE_ARCHIVE, 'r:gz') as tf: tf.extractall(SOURCE)
+    with tarfile.open(SOURCE_ARCHIVE, 'r:gz') as tf: tf.extractall(SOURCE, filter='data')
 
     tests = sorted((SOURCE / 'tests').glob('*.py'))
     outputs=[]
@@ -50,6 +50,7 @@ def main() -> None:
             (LOGS/'regression-tests.log').write_text('\n'.join(outputs),encoding='utf-8')
             raise SystemExit(f'regression test failed: {test.name}')
     (LOGS/'regression-tests.log').write_text('\n'.join(outputs),encoding='utf-8')
+    if len(tests) != 50: raise SystemExit(f'expected 50 tests, found {len(tests)}')
 
     latest=WORK/'dalamud-latest.zip'
     urllib.request.urlretrieve('https://goatcorp.github.io/dalamud-distrib/latest.zip',latest)
