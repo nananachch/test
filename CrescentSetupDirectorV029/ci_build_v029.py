@@ -1,19 +1,19 @@
 from __future__ import annotations
-import base64, bz2, hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request, zipfile
+import base64, hashlib, json, os, shutil, subprocess, sys, tarfile, urllib.request, zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-WORK = Path(os.environ.get('RUNNER_TEMP', HERE / '_tmp')) / 'csd_v029'
+WORK = Path(os.environ.get('RUNNER_TEMP', HERE / '_tmp')) / 'csd_v029_r2'
 SOURCE = WORK / 'source'
 ART = HERE / 'build-artifact'
 LOGS = ART / 'LOGS'
 PLUGIN = ART / 'PLUGIN_FILES'
 REPORTS = ART / 'REPORTS'
 VERSION = '0.2.9'
-BUILD_ID = 'CSD_V029_API15_NET10_CE_DUAL_ROUTE_MANUAL_RETURN_20260827_R1'
-SOURCE_ARCHIVE = WORK / 'source_v0.2.9.tar.bz2'
-SOURCE_ARCHIVE_SHA256 = '87f66ffe5c62f1f55e36a2d3aec6ad1191f21403aa91c70e11199a329929f70b'
-EXPECTED_TEST_COUNT = 55
+BUILD_ID = 'CSD_V029_API15_NET10_CE_POT_MANUAL_BASE_R2_20260827'
+SOURCE_ARCHIVE = WORK / 'source_v0.2.9.r2.tar.bz2'
+SOURCE_ARCHIVE_SHA256 = '2cf4c001eccafacfddf459c15fef27170572a3bee15519da8f76d9d961c56010'
+EXPECTED_TEST_COUNT = 58
 
 def sha(path: Path) -> str:
     h = hashlib.sha256()
@@ -35,10 +35,10 @@ def run(cmd: list[str], cwd: Path, log_path: Path, env: dict[str, str] | None = 
 def main() -> None:
     shutil.rmtree(WORK, ignore_errors=True); shutil.rmtree(ART, ignore_errors=True)
     SOURCE.mkdir(parents=True); LOGS.mkdir(parents=True); PLUGIN.mkdir(parents=True); REPORTS.mkdir(parents=True)
-    chunks = sorted((HERE / 'chunks').glob('source_v0.2.9.tbz2.b64.*'))
-    if not chunks: raise SystemExit('source archive chunks missing')
+    chunks = sorted((HERE / 'chunks').glob('source_v0.2.9.r2.tbz2.b64.*'))
+    if not chunks: raise SystemExit('R2 source archive chunks missing')
     SOURCE_ARCHIVE.write_bytes(base64.b64decode(''.join(x.read_text(encoding='ascii').strip() for x in chunks)))
-    if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256: raise SystemExit('source archive SHA-256 mismatch')
+    if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256: raise SystemExit('R2 source archive SHA-256 mismatch')
     with tarfile.open(SOURCE_ARCHIVE, 'r:bz2') as tf: tf.extractall(SOURCE, filter='data')
 
     tests = sorted((SOURCE / 'tests').glob('*.py'))
@@ -76,8 +76,11 @@ def main() -> None:
     manifest=json.loads((PLUGIN/'CrescentSetupDirector.json').read_text(encoding='utf-8-sig'))
     if manifest.get('AssemblyVersion')!='0.2.9.0' or manifest.get('DalamudApiLevel')!=15:
         raise SystemExit(f'bad manifest: {manifest}')
+    dll_bytes=(PLUGIN/'CrescentSetupDirector.dll').read_bytes()
+    if BUILD_ID.encode('utf-8') not in dll_bytes:
+        raise SystemExit('new R2 Build ID was not found in DLL bytes')
 
-    source_zip=ART/'Crescent_Setup_Director_v0.2.9_SOURCE_VERIFIED.zip'
+    source_zip=ART/'Crescent_Setup_Director_v0.2.9_R2_SOURCE_VERIFIED.zip'
     with zipfile.ZipFile(source_zip,'w',zipfile.ZIP_DEFLATED,compresslevel=9,strict_timestamps=False) as zf:
         for path in sorted(SOURCE.rglob('*')):
             rel=path.relative_to(SOURCE)
