@@ -3,7 +3,7 @@ import base64, gzip, hashlib, json, os, shutil, subprocess, sys, tempfile, urlli
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parent
 WORK = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir())) / 'csd_v0210_r6_final'
 ART = HERE / 'build-artifact'
 LOGS = ART / 'LOGS'
@@ -34,7 +34,7 @@ def main()->None:
     WORK.mkdir(parents=True); LOGS.mkdir(parents=True); PLUGIN.mkdir(parents=True); REPORTS.mkdir(parents=True)
 
     base=WORK/'base_artifact'
-    run(['gh','run','download',BASE_RUN_ID,'-n',BASE_ARTIFACT,'-D',str(base)],ROOT,LOGS/'download-base.log')
+    run(['gh','run','download',BASE_RUN_ID,'-R','nananachch/test','-n',BASE_ARTIFACT,'-D',str(base)],ROOT,LOGS/'download-base.log')
     src_zip=base/'Crescent_Setup_Director_v0.2.9_R3_SOURCE_VERIFIED.zip'
     if not src_zip.exists(): raise SystemExit(f'base source zip missing: {src_zip}')
     extracted=WORK/'base_source'
