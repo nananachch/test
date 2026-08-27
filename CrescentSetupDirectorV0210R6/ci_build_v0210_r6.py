@@ -36,9 +36,9 @@ def run(cmd: list[str], cwd: Path, log_path: Path, env: dict[str, str] | None = 
 def main() -> None:
     shutil.rmtree(WORK, ignore_errors=True); shutil.rmtree(ART, ignore_errors=True)
     SOURCE.mkdir(parents=True); LOGS.mkdir(parents=True); PLUGIN.mkdir(parents=True); REPORTS.mkdir(parents=True)
-    packaged_archive = HERE / 'source_v0.2.10.r6.tar.bz2'
-    if not packaged_archive.exists(): raise SystemExit('R6 source archive missing')
-    shutil.copy2(packaged_archive, SOURCE_ARCHIVE)
+    chunks = sorted((HERE / 'chunks2').glob('source_v0.2.10.r6.tbz2.b64.*'))
+    if not chunks: raise SystemExit('R6 source archive chunks missing')
+    SOURCE_ARCHIVE.write_bytes(base64.b64decode(''.join(x.read_text(encoding='ascii').strip() for x in chunks)))
     if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256: raise SystemExit('R6 source archive SHA-256 mismatch')
     with tarfile.open(SOURCE_ARCHIVE, 'r:bz2') as tf: tf.extractall(SOURCE, filter='data')
 
