@@ -22,7 +22,7 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build and verify
         shell: cmd
-        run: python CrescentSetupDirectorV029\ci_build_v029.py
+        run: python CrescentSetupDirectorV029\ci_build_v029_r3_wrapper.py
       - name: Upload verified artifact
         uses: actions/upload-artifact@v4
         with:
