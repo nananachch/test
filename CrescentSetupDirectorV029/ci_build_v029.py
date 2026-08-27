@@ -41,6 +41,22 @@ def main() -> None:
     if sha(SOURCE_ARCHIVE) != SOURCE_ARCHIVE_SHA256: raise SystemExit('R2 source archive SHA-256 mismatch')
     with tarfile.open(SOURCE_ARCHIVE, 'r:bz2') as tf: tf.extractall(SOURCE, filter='data')
 
+    # The R2 transport archive was created immediately before the obsolete auto-travel fields were
+    # removed. Apply that two-line cleanup deterministically before tests/build/source packaging.
+    setup_path = SOURCE / 'SetupEngine.cs'
+    setup_text = setup_path.read_text(encoding='utf-8')
+    obsolete = [
+        '    private bool globalMoveRequested;\n',
+        '    private DateTime globalTravelStartedUtc;\n',
+        '        globalMoveRequested = false;\n',
+        '        globalTravelStartedUtc = default;\n',
+    ]
+    for marker in obsolete:
+        setup_text = setup_text.replace(marker, '')
+    if 'globalMoveRequested' in setup_text or 'globalTravelStartedUtc' in setup_text:
+        raise SystemExit('obsolete automatic global-buff travel state remains')
+    setup_path.write_text(setup_text, encoding='utf-8', newline='\n')
+
     tests = sorted((SOURCE / 'tests').glob('*.py'))
     outputs=[]
     tenv={**os.environ,'PYTHONUTF8':'1','PYTHONIOENCODING':'utf-8'}
@@ -77,7 +93,7 @@ def main() -> None:
     if manifest.get('AssemblyVersion')!='0.2.9.0' or manifest.get('DalamudApiLevel')!=15:
         raise SystemExit(f'bad manifest: {manifest}')
     dll_bytes=(PLUGIN/'CrescentSetupDirector.dll').read_bytes()
-    if BUILD_ID.encode('utf-8') not in dll_bytes:
+    if BUILD_ID.encode('utf-8') not in dll_bytes and BUILD_ID.encode('utf-16le') not in dll_bytes:
         raise SystemExit('new R2 Build ID was not found in DLL bytes')
 
     source_zip=ART/'Crescent_Setup_Director_v0.2.9_R2_SOURCE_VERIFIED.zip'
