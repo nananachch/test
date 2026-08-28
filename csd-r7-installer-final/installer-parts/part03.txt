@@ -1,0 +1,172 @@
+            path.write_text(text, encoding="utf-8-sig")
+        except Exception:
+            pass
+
+
+def update_project(payload_manifest: dict[str, str], plugin_manifest: dict[str, str]) -> Path:
+    assert ROOT is not None and DOCS is not None
+    projects = DOCS / "Codex" / "Projects"
+    project_root = projects / PROJECT
+    target = project_root / "Latest_Source"
+    previous_full = project_root / "Previous_Latest_Source"
+    pending = project_root / ".Latest_Source_Pending_R7"
+    rollback = project_root / ".Latest_Source_Rollback_R7"
+    payload = ROOT / "PAYLOAD" / PROJECT / "Latest_Source"
+
+    project_root.mkdir(parents=True, exist_ok=True)
+    # 以前の未完了残骸は消さず、別名で保全する。
+    for stale, prefix in ((pending, "Pending_R7_Preexisting"), (rollback, "Rollback_R7_Preexisting")):
+        archive_existing(stale, project_root, prefix)
+
+    old_exists = target.exists()
+    old_hashes = tree_hashes(target)
+    backup_complete = False
+    target_mutated = False
+    displaced: Path | None = None
+    deployed_hashes: dict[str, str] = {}
+
+    if os.environ.get("CODEX_UPDATE_TEST_FAIL_STAGE") == "before_backup":
+        raise RuntimeError("自動復元試験用の意図的失敗（バックアップ前）")
+
+    if old_exists:
+        old_hashes = snapshot_tree(target, rollback, "変更前ワークスペースのコピー保全")
+        backup_complete = True
+    else:
+        backup_complete = True
+        emit("新規導入: 変更前ワークスペースはありません。")
+
+    if os.environ.get("CODEX_UPDATE_TEST_FAIL_STAGE") == "after_backup":
+        raise RuntimeError("自動復元試験用の意図的失敗（バックアップ後・変更前）")
+
+    retry("一時ワークスペース作成", lambda: shutil.copytree(payload, pending))
+    preserve_previous_plugin(pending, target, previous_full)
+
+    managed_subset = {
+        key.split("/", 2)[2]: value
+        for key, value in payload_manifest.items()
+        if key.startswith(f"{PROJECT}/Latest_Source/")
+        and "/_BUNDLE/INSTALL/Previous/" not in key
+    }
+    verify_hashes(pending, managed_subset, "一時ワークスペース")
+    deployed_hashes = tree_hashes(pending)
+
+    try:
+        if old_exists:
+            target_mutated = True
+            emit("検証済みバックアップ作成後、既存Latest_Sourceへoverlay更新します。")
+            copy_tree_overlay(pending, target, allow_test_failure=True)
+        else:
+            target_mutated = True
+            retry("新規ワークスペース配置", lambda: pending.rename(target))
+
+        verify_hashes(target, managed_subset, "導入先ワークスペース")
+
+        if os.environ.get("CODEX_UPDATE_TEST_FAIL_STAGE") == "after_deploy":
+            raise RuntimeError("自動復元試験用の意図的失敗（配置後）")
+
+        final_plugin = target / "_BUNDLE" / "INSTALL" / "Expanded_Plugin"
+        ensure_plugin(final_plugin, ROOT / "PLUGIN_FILES", plugin_manifest)
+
+        if os.environ.get("CODEX_UPDATE_TEST_FAIL_STAGE") == "after_plugin":
+            raise RuntimeError("自動復元試験用の意図的失敗（DLL配置後）")
+
+        verify_hashes(target, managed_subset, "最終ワークスペース")
+        verify_plugin(final_plugin, plugin_manifest, "最終プラグイン")
+        if old_exists:
+            commit_previous(project_root, rollback, previous_full)
+        emit(f"{DISPLAY_NAME}: Codex同期・DLL最終配置・保持・SHA-256検証 PASS")
+        return final_plugin
+    except Exception as update_error:
+        emit(f"{DISPLAY_NAME}: 更新失敗。安全な復元処理を開始します: {update_error}")
+        if not backup_complete:
+            raise RuntimeError("バックアップ未完了のため、対象を変更せず安全停止しました。") from update_error
+
+        if target_mutated and target.exists():
+            displaced = unique_path(project_root, ".Latest_Source_Displaced_R7")
+            try:
+                displaced_hashes = snapshot_tree(target, displaced, "失敗時の変異状態保全")
+                emit(f"失敗時状態を保全しました: {displaced} ({len(displaced_hashes)} files)")
+            except Exception as snapshot_error:
+                emit(f"失敗時状態の追加保全に失敗しましたが、変更前rollbackは保持します: {snapshot_error}")
+
+        if old_exists:
+            try:
+                restore_exact(target, rollback, old_hashes, deployed_hashes)
+            except Exception as restore_error:
+                recovery = f"RESTORE_FAILED; rollback={rollback}; displaced={displaced or 'unavailable'}"
+                write_result("FAILED", f"更新失敗かつ復元未完了: {restore_error}", recovery=recovery)
+                raise RuntimeError(
+                    "更新に失敗し、完全復元も確認できませんでした。"
+                    f" rollback={rollback} displaced={displaced or 'unavailable'}。"
+                    "これらを削除せず、同じインストーラーを再実行しないでください。"
+                ) from update_error
+        else:
+            if target.exists():
+                remove_path(target)
+            if target.exists():
+                raise RuntimeError("新規導入失敗後に空状態へ戻せませんでした。") from update_error
+            emit("新規導入前の空状態へ復元しました。")
+
+        # 復元確認後だけ一時保全を削除する。
+        if rollback.exists():
+            remove_path(rollback)
+        if displaced is not None and displaced.exists():
+            remove_path(displaced)
+        raise
+    finally:
+        # 復元不能時はrollback/displacedを残す。pendingは対象外の一時コピーなので除去可能。
+        if pending.exists():
+            remove_path(pending)
+
+
+def open_path(path: Path) -> None:
+    if os.name == "nt" and not os.environ.get("CODEX_UPDATE_TEST_ROOT"):
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]
+        except Exception as exc:
+            emit(f"フォルダを自動で開けませんでした: {exc}")
+
+
+def open_log(path: Path) -> None:
+    if os.name == "nt" and not os.environ.get("CODEX_UPDATE_TEST_ROOT"):
+        try:
+            subprocess.Popen(["notepad.exe", str(path)])
+        except Exception:
+            open_path(path.parent)
+
+
+def main() -> int:
+    global ROOT, DOCS, RESULT_PATH, LOG
+    ROOT = Path(__file__).resolve().parents[1]
+    RESULT_PATH = ROOT / "LAST_RESULT.txt"
+    logs = ROOT / "LOGS"
+    logs.mkdir(parents=True, exist_ok=True)
+    log_path = logs / f"{PROJECT.lower()}_codex_update_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.log"
+    LOG = log_path.open("w", encoding="utf-8-sig", newline="\n")
+
+    emit(f"Installer Build ID: {INSTALLER_BUILD_ID}")
+    emit(f"Plugin Build ID: {PLUGIN_BUILD_ID}")
+    emit(f"実行元: {ROOT}")
+    if suspicious(ROOT):
+        raise RuntimeError("ZIP内または一時フォルダから実行できません。Windows標準の『すべて展開』後に直下CMDを実行してください。")
+
+    DOCS = documents_root()
+    emit(f"使用するドキュメント: {DOCS}")
+    projects = DOCS / "Codex" / "Projects"
+    projects.mkdir(parents=True, exist_ok=True)
+    probe = projects / ".codex_update_write_test"
+    probe.write_text("ok", encoding="ascii")
+    probe.unlink()
+
+    payload_data = json.loads((ROOT / "MANIFEST" / "payload-sha256.json").read_text(encoding="utf-8-sig"))
+    plugin_data = json.loads((ROOT / "MANIFEST" / "plugin-files-sha256.json").read_text(encoding="utf-8-sig"))
+    payload_manifest = payload_data["files"]
+    plugin_manifest = plugin_data["files"]
+
+    emit("同梱PAYLOAD全体をSHA-256検証しています。")
+    verify_hashes(ROOT / "PAYLOAD", payload_manifest, "PAYLOAD")
+    emit("独立PLUGIN_FILES正本をSHA-256検証しています。")
+    verify_hashes(ROOT / "PLUGIN_FILES", plugin_manifest, "PLUGIN_FILES", exact=True)
+
+    final_plugin = update_project(payload_manifest, plugin_manifest)
+    detail = f"{DISPLAY_NAME} v0.2.11 R7の導入・更新・検証・Previous保存まで完了しました。"
