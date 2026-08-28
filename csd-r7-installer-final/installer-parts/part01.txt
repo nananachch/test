@@ -1,0 +1,221 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
+import ctypes
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import time
+import traceback
+from ctypes import wintypes
+from datetime import datetime
+from pathlib import Path
+from uuid import UUID
+
+INSTALLER_BUILD_ID = "CSD_V0211_API15_NET10_R7_SELF_CONTAINED_RECOVERY_20260828"
+PLUGIN_BUILD_ID = "CSD_V0211_API15_NET10_POT_FINAL_RECOVERY_R7_20260828"
+PROJECT = "CrescentSetupDirector"
+DISPLAY_NAME = "Crescent Setup Director"
+DLL_NAME = "CrescentSetupDirector.dll"
+RESULT_NAME = "CSD_CODEX_UPDATE_LAST_RESULT.txt"
+REVISION = "R7"
+
+START = time.monotonic()
+ROOT: Path | None = None
+DOCS: Path | None = None
+RESULT_PATH: Path | None = None
+LOG = None
+
+
+def elapsed() -> str:
+    return f"{time.monotonic() - START:7.1f}s"
+
+
+def emit(message: str) -> None:
+    line = f"[{elapsed()}] {message}"
+    print(line, flush=True)
+    if LOG is not None:
+        LOG.write(line + "\n")
+        LOG.flush()
+
+
+def digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink(missing_ok=True)
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def tree_hashes(root: Path) -> dict[str, str]:
+    if not root.exists():
+        return {}
+    return {
+        p.relative_to(root).as_posix(): digest(p)
+        for p in sorted(root.rglob("*"), key=lambda x: x.as_posix().casefold())
+        if p.is_file()
+    }
+
+
+def verify_hashes(root: Path, expected: dict[str, str], label: str, *, exact: bool = False) -> None:
+    actual_paths: set[str] = set()
+    if exact and root.exists():
+        actual_paths = {
+            p.relative_to(root).as_posix()
+            for p in root.rglob("*")
+            if p.is_file()
+        }
+        missing = sorted(set(expected) - actual_paths)
+        extra = sorted(actual_paths - set(expected))
+        if missing or extra:
+            raise RuntimeError(f"{label} ファイル集合不一致: missing={missing[:8]} extra={extra[:8]}")
+
+    for rel, wanted in sorted(expected.items(), key=lambda x: x[0].casefold()):
+        path = root / Path(rel)
+        if not path.is_file():
+            raise RuntimeError(f"{label} SHA-256検証失敗（ファイル不足）: {rel}")
+        actual = digest(path)
+        if actual != wanted:
+            raise RuntimeError(f"{label} SHA-256検証失敗: {rel}\nexpected={wanted}\nactual={actual}")
+
+
+def suspicious(root: Path) -> bool:
+    if os.environ.get("CODEX_UPDATE_TEST_ROOT"):
+        return False
+    low = str(root).lower()
+    temp = os.environ.get("TEMP") or os.environ.get("TMP")
+    if temp:
+        try:
+            root.resolve().relative_to(Path(temp).resolve())
+            return True
+        except ValueError:
+            pass
+    return ".zip\\" in low or "\\temp1_" in low or "temporary internet files" in low
+
+
+class GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", wintypes.DWORD),
+        ("Data2", wintypes.WORD),
+        ("Data3", wintypes.WORD),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+
+    @classmethod
+    def from_uuid(cls, value: UUID) -> "GUID":
+        return cls.from_buffer_copy(value.bytes_le)
+
+
+def windows_known_documents() -> Path | None:
+    if os.name != "nt":
+        return None
+    folder_id = GUID.from_uuid(UUID("FDD39AD0-238F-46AF-ADB4-6C85480369C7"))
+    out = ctypes.c_wchar_p()
+    result = ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(folder_id), 0, None, ctypes.byref(out))
+    if result != 0 or not out.value:
+        return None
+    try:
+        return Path(out.value)
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(ctypes.cast(out, ctypes.c_void_p))
+
+
+def documents_root() -> Path:
+    test = os.environ.get("CODEX_UPDATE_TEST_ROOT")
+    if test:
+        return Path(test).resolve() / "Documents"
+
+    candidates: list[Path] = []
+    known = windows_known_documents()
+    if known:
+        candidates.append(known)
+    for key in ("USERPROFILE", "OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+        value = os.environ.get(key)
+        if value:
+            candidates.append(Path(value) / "Documents")
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for item in candidates:
+        token = os.path.normcase(os.path.abspath(str(item)))
+        if token not in seen:
+            seen.add(token)
+            unique.append(item)
+    for item in unique:
+        if (item / "Codex" / "Projects").exists():
+            return item
+    if unique:
+        return unique[0]
+    raise RuntimeError("Windowsのドキュメントフォルダを取得できませんでした。")
+
+
+def retry(label: str, function, attempts: int = 2):
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return function()
+        except (PermissionError, OSError) as exc:
+            last = exc
+            if attempt < attempts:
+                emit(f"{label}に失敗。再試行します ({attempt}/{attempts}): {exc}")
+                time.sleep(0.05 if os.environ.get("CODEX_UPDATE_TEST_ROOT") else 2)
+    assert last is not None
+    raise last
+
+
+def durable_copy(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() and dst.is_dir():
+        remove_path(dst)
+    temp = dst.with_name(dst.name + ".installing")
+    temp.unlink(missing_ok=True)
+    with src.open("rb") as source, temp.open("wb") as target:
+        shutil.copyfileobj(source, target, length=1024 * 1024)
+        target.flush()
+        os.fsync(target.fileno())
+    shutil.copystat(src, temp)
+    os.replace(temp, dst)
+
+
+def copy_tree_overlay(source: Path, destination: Path, *, allow_test_failure: bool = False) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    fail_after = int(os.environ.get("CODEX_UPDATE_TEST_FAIL_OVERLAY_AFTER", "4"))
+    for path in sorted(source.rglob("*"), key=lambda x: x.as_posix().casefold()):
+        rel = path.relative_to(source)
+        target = destination / rel
+        if path.is_dir():
+            if target.exists() and not target.is_dir():
+                remove_path(target)
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if path.is_file():
+            durable_copy(path, target)
+            copied += 1
+            if allow_test_failure and os.environ.get("CODEX_UPDATE_TEST_FAIL_STAGE") == "during_overlay" and copied >= fail_after:
+                raise RuntimeError("自動復元試験用の意図的失敗（overlay途中）")
+
+
+def unique_path(parent: Path, prefix: str) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    candidate = parent / f"{prefix}_{stamp}"
+    counter = 2
+    while candidate.exists():
+        candidate = parent / f"{prefix}_{stamp}_{counter}"
+        counter += 1
+    return candidate
+
+
+def archive_existing(path: Path, parent: Path, prefix: str) -> Path | None:
+    if not path.exists():
+        return None
+    destination = unique_path(parent, prefix)
