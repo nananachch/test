@@ -1,0 +1,105 @@
+name: CSD R7 final verified Windows build
+
+on:
+  push:
+    branches: [ csd-r7-build-20260828 ]
+    paths:
+      - '.github/workflows/csd-r7-build-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify transferred source and apply fixed compile patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Host "WORKSPACE=$pwd"
+          $parts=Get-ChildItem .\csd-r7\parts\part*.txt | Sort-Object Name
+          if($parts.Count -ne 9){throw "Expected 9 parts, found $($parts.Count)"}
+          $p1=Get-Content $parts[0].FullName -Raw
+          if($p1.Length -ne 9999){throw "Unexpected part01 length $($p1.Length)"}
+          $p1=$p1.Insert(9861,'e')
+          $b64=$p1+(($parts|Select-Object -Skip 1|ForEach-Object{Get-Content $_.FullName -Raw}) -join '')
+          [IO.File]::WriteAllBytes('.\csd-r7\source-base.zip',[Convert]::FromBase64String($b64))
+          $baseSha=(Get-FileHash .\csd-r7\source-base.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($baseSha -ne '690045c4cd24c2a31abe9cb6768d5887d975b2cfa707564eee1469fad0ed3ae4'){throw "Base source SHA mismatch: $baseSha"}
+          Write-Host "BASE_SOURCE_ZIP_SHA256=$baseSha"
+          Expand-Archive -Force .\csd-r7\source-base.zip .\csd-r7\src
+          $p='.\csd-r7\src\SetupEngine.cs'
+          $s=Get-Content $p -Raw
+          $old1='    private ushort globalBuffObservedTerritory;'
+          $new1='    private uint globalBuffObservedTerritory;'
+          if(([regex]::Matches($s,[regex]::Escape($old1))).Count -ne 1){throw 'Territory patch anchor mismatch'}
+          $s=$s.Replace($old1,$new1)
+          $old2="    private bool TryResolveActionTarget(ActionStep step, out ulong targetId, out string reason)`r`n    {"
+          if(-not $s.Contains($old2)){$old2="    private bool TryResolveActionTarget(ActionStep step, out ulong targetId, out string reason)`n    {"}
+          if(-not $s.Contains($old2)){throw 'ResolveTarget patch anchor missing'}
+          $nl=if($old2.Contains("`r`n")){"`r`n"}else{"`n"}
+          $new2="    private ulong ResolveTarget(bool enemy) => enemy${nl}        ? Plugin.TargetManager.Target?.GameObjectId ?? DirectActionBridge.InvalidTargetId${nl}        : Plugin.ObjectTable.LocalPlayer?.GameObjectId ?? DirectActionBridge.InvalidTargetId;${nl}${nl}    private bool TryResolveActionTarget(ActionStep step, out ulong targetId, out string reason)${nl}    {"
+          $s=$s.Replace($old2,$new2)
+          [IO.File]::WriteAllText((Resolve-Path $p),$s,[Text.UTF8Encoding]::new($false))
+          $files=Get-ChildItem .\csd-r7\src -Recurse -File|Sort-Object{$_.FullName.Substring((Resolve-Path .\csd-r7\src).Path.Length+1).Replace('\','/')}
+          $manifest=[ordered]@{}
+          foreach($f in $files){$rel=$f.FullName.Substring((Resolve-Path .\csd-r7\src).Path.Length+1).Replace('\','/');$manifest[$rel]=(Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $manifest|ConvertTo-Json -Depth 4|Set-Content .\csd-r7\source-manifest.json -Encoding utf8
+          Write-Host "PATCHED_SETUPENGINE_SHA256=$((Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant())"
+
+      - name: Install official Dalamud API 15
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dev="$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force $dev|Out-Null
+          Invoke-WebRequest https://goatcorp.github.io/dalamud-distrib/api15/latest.zip -OutFile .\csd-r7\api15.zip
+          Write-Host "API15_ZIP_SHA256=$((Get-FileHash .\csd-r7\api15.zip -Algorithm SHA256).Hash.ToLowerInvariant())"
+          Expand-Archive -Force .\csd-r7\api15.zip $dev
+          if(!(Test-Path "$dev\Dalamud.dll")){throw 'Dalamud.dll missing'}
+          Write-Host "DALAMUD_DLL_SHA256=$((Get-FileHash "$dev\Dalamud.dll" -Algorithm SHA256).Hash.ToLowerInvariant())"
+
+      - name: Restore and Release build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          dotnet --info 2>&1|Tee-Object .\csd-r7\dotnet-info.txt
+          dotnet restore .\csd-r7\src\CrescentSetupDirector.csproj --locked-mode 2>&1|Tee-Object .\csd-r7\restore.log
+          if($LASTEXITCODE -ne 0){throw "restore failed $LASTEXITCODE"}
+          dotnet build .\csd-r7\src\CrescentSetupDirector.csproj -c Release --no-restore 2>&1|Tee-Object .\csd-r7\build.log
+          if($LASTEXITCODE -ne 0){throw "build failed $LASTEXITCODE"}
+
+      - name: Verify DLL and metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dll=Get-ChildItem .\csd-r7\src -Recurse -Filter CrescentSetupDirector.dll|Where-Object{$_.FullName -match '[\\/]bin[\\/]Release[\\/]'}|Sort-Object LastWriteTime -Descending|Select-Object -First 1
+          if(!$dll){throw 'Release DLL missing'}
+          $out='.\csd-r7\artifact';New-Item -ItemType Directory -Force $out|Out-Null
+          Copy-Item "$($dll.Directory.FullName)\*" $out -Recurse -Force
+          Copy-Item .\csd-r7\source-base.zip,.\csd-r7\source-manifest.json,.\csd-r7\build.log,.\csd-r7\restore.log,.\csd-r7\dotnet-info.txt $out -Force
+          Copy-Item .\csd-r7\src\SetupEngine.cs "$out\SetupEngine.built.cs" -Force
+          $id='CSD_V0211_API15_NET10_POT_FINAL_RECOVERY_R7_20260828'
+          $bytes=[IO.File]::ReadAllBytes($dll.FullName)
+          if(([Text.Encoding]::Unicode.GetString($bytes) -notmatch [regex]::Escape($id)) -and ([Text.Encoding]::UTF8.GetString($bytes) -notmatch [regex]::Escape($id))){throw 'Build ID absent'}
+          $fi=[Diagnostics.FileVersionInfo]::GetVersionInfo($dll.FullName)
+          if($fi.FileVersion -ne '0.2.11.0'){throw "Version mismatch $($fi.FileVersion)"}
+          $errors=(Select-String .\csd-r7\build.log -Pattern ': error ' -SimpleMatch).Count
+          $warnings=(Select-String .\csd-r7\build.log -Pattern ': warning ' -SimpleMatch).Count
+          if($errors){throw "$errors build errors"}
+          [ordered]@{plugin_build_id=$id;dll_sha256=(Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant();dll_size=$dll.Length;file_version=$fi.FileVersion;product_version=$fi.ProductVersion;api=15;target='net10.0-windows';build_errors=$errors;build_warnings=$warnings;base_source_zip_sha256='690045c4cd24c2a31abe9cb6768d5887d975b2cfa707564eee1469fad0ed3ae4';setupengine_sha256=(Get-FileHash .\csd-r7\src\SetupEngine.cs -Algorithm SHA256).Hash.ToLowerInvariant()}|ConvertTo-Json|Set-Content "$out\build-metadata.json" -Encoding utf8
+          Get-Content "$out\build-metadata.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csd-r7-final-release
+          path: csd-r7/artifact
+          if-no-files-found: error
+          retention-days: 2
