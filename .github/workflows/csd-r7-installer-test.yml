@@ -1,0 +1,157 @@
+name: CSD R7 exact installer Windows tests
+
+on:
+  push:
+    branches: [ csd-r7-build-20260828 ]
+    paths:
+      - 'installer-test/**'
+      - '.github/workflows/csd-r7-installer-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Reassemble exact installer and verify SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parts=Get-ChildItem .\installer-test\parts\part*.txt | Sort-Object Name
+          if($parts.Count -ne 5){throw "Expected 5 parts, found $($parts.Count)"}
+          $b64=($parts|ForEach-Object{Get-Content $_.FullName -Raw}) -join ''
+          New-Item -ItemType Directory -Force .\installer-test\pkg\TOOLS|Out-Null
+          [IO.File]::WriteAllBytes('.\installer-test\pkg\TOOLS\install_or_update_codex_project.py',[Convert]::FromBase64String($b64))
+          $actual=(Get-FileHash .\installer-test\pkg\TOOLS\install_or_update_codex_project.py -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected='ece160efab629ae722533e017974c7c1c44cc7ac4e15d90c190b2c45723869d7'
+          Write-Host "INSTALLER_SHA256=$actual"
+          if($actual -ne $expected){throw "Installer SHA mismatch expected=$expected actual=$actual"}
+
+      - name: Create Windows test harness
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import hashlib, json, os, shutil, subprocess, sys
+
+          BASE=Path('installer-test').resolve()
+          PKG=BASE/'pkg'
+          SCRIPT=PKG/'TOOLS/install_or_update_codex_project.py'
+          PROJECT='CrescentSetupDirector'
+          DLL='CrescentSetupDirector.dll'
+          ROOT=PKG/'PAYLOAD'/PROJECT/'Latest_Source'
+          PLUGIN=PKG/'PLUGIN_FILES'
+          TESTS=BASE/'windows-cases'
+          LOG=BASE/'windows-installer-tests.log'
+
+          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          def tree(root): return {p.relative_to(root).as_posix():sha(p) for p in root.rglob('*') if p.is_file()} if root.exists() else {}
+          def target(case): return case/'Documents/Codex/Projects'/PROJECT/'Latest_Source'
+          def project_root(case): return target(case).parent
+          def write(p,data,encoding='utf-8'):
+              p.parent.mkdir(parents=True,exist_ok=True)
+              if isinstance(data,bytes): p.write_bytes(data)
+              else: p.write_text(data,encoding=encoding)
+
+          def build_package():
+              if ROOT.exists(): shutil.rmtree(ROOT)
+              if PLUGIN.exists(): shutil.rmtree(PLUGIN)
+              files={
+                  'README_FIRST.txt':'R7 workspace\n',
+                  'INSTALLER_RECOVERY_R7_JP.txt':'R7 recovery\n',
+                  'WORKSPACE_BUILD_ID.txt':'CSD_V0211_API15_NET10_POT_FINAL_RECOVERY_R7_20260828\n',
+                  'SOURCE/Program.cs':'// fixed R7 test source\n',
+                  'MANIFEST/PACKAGE_INFO.json':'{"version":"0.2.11 R7"}\n',
+              }
+              plugin={
+                  DLL:b'MZ'+b'R7-WINDOWS-INSTALLER-TEST'*64,
+                  'CrescentSetupDirector.deps.json':'{"runtimeTarget":{"name":"net10.0-windows"}}\n',
+                  'CrescentSetupDirector.json':'{"Name":"Crescent Setup Director","DalamudApiLevel":15}\n',
+              }
+              for rel,data in files.items(): write(ROOT/rel,data)
+              for rel,data in plugin.items():
+                  write(PLUGIN/rel,data)
+                  write(ROOT/'_BUNDLE/INSTALL/Expanded_Plugin'/rel,data)
+              payload={p.relative_to(PKG/'PAYLOAD').as_posix():sha(p) for p in (PKG/'PAYLOAD').rglob('*') if p.is_file()}
+              plugins={p.relative_to(PLUGIN).as_posix():sha(p) for p in PLUGIN.rglob('*') if p.is_file()}
+              write(PKG/'MANIFEST/payload-sha256.json',json.dumps({'files':payload},indent=2))
+              write(PKG/'MANIFEST/plugin-files-sha256.json',json.dumps({'files':plugins},indent=2))
+              return plugins
+
+          def seed_old(case,previous=True):
+              t=target(case); t.mkdir(parents=True,exist_ok=True)
+              write(t/'managed-old.txt','managed old\n')
+              write(t/'INSTALLER_RECOVERY_R6_JP.txt','old recovery\n')
+              write(t/'manual-extra.txt','keep manual\n')
+              write(t/'USER/custom.json','{"unknown_key":42,"keep":true}\n')
+              write(t/'LOGS/manual.log','keep log\n')
+              managed=[t/'managed-old.txt',t/'INSTALLER_RECOVERY_R6_JP.txt']
+              lines=''.join(f'{sha(p)}  {p.relative_to(t).as_posix()}\n' for p in managed)
+              write(t/'MANIFEST/CONTENT_SHA256SUMS.txt',lines)
+              if previous: write(project_root(case)/'Previous_Latest_Source/older.txt','older previous\n')
+              return t
+
+          def run(name,case,extra=None,expect=0):
+              env=os.environ.copy(); env['CODEX_UPDATE_TEST_ROOT']=str(case.resolve())
+              for key in ('CODEX_UPDATE_TEST_FORCE_RENAME_DENIED','CODEX_UPDATE_TEST_DELETE_DLL_ONCE','CODEX_UPDATE_TEST_FAIL','CODEX_UPDATE_TEST_FAIL_AFTER_DEPLOY','CODEX_UPDATE_TEST_RESTORE_FAIL'):
+                  env.pop(key,None)
+              if extra: env.update(extra)
+              cp=subprocess.run([sys.executable,str(SCRIPT)],cwd=PKG,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=90)
+              with LOG.open('a',encoding='utf-8') as f: f.write(f'===== {name} RC={cp.returncode} EXPECT={expect} =====\n{cp.stdout}\n')
+              if cp.returncode!=expect: raise AssertionError(f'{name}: rc={cp.returncode}, expected={expect}\n{cp.stdout[-3000:]}')
+              return cp.stdout
+
+          def verify_new(t,plugins):
+              for rel,want in plugins.items():
+                  p=t/'_BUNDLE/INSTALL/Expanded_Plugin'/rel
+                  assert p.is_file() and sha(p)==want,(rel,p)
+              assert (t/'INSTALLER_RECOVERY_R7_JP.txt').is_file()
+              assert not (t/'INSTALLER_RECOVERY_R6_JP.txt').exists()
+
+          plugins=build_package(); TESTS.mkdir(parents=True,exist_ok=True)
+          results=[]
+          def ok(n): results.append(n); print(f'PASS {n}')
+
+          c=TESTS/'fresh'; run('1 fresh',c); verify_new(target(c),plugins); ok(1)
+          c=TESTS/'update'; old=seed_old(c); run('2 update',c); verify_new(target(c),plugins); assert (target(c)/'manual-extra.txt').read_text()=='keep manual\n'; assert not (target(c)/'managed-old.txt').exists(); assert list(project_root(c).glob('Previous_Latest_Source_Before_R7_*')); ok(2)
+          run('3 rerun',c); verify_new(target(c),plugins); ok(3)
+          run('4 dll delete once',c,{'CODEX_UPDATE_TEST_DELETE_DLL_ONCE':'1'}); verify_new(target(c),plugins); ok(4)
+          c=TESTS/'rename-denied'; seed_old(c); run('5 rename denied',c,{'CODEX_UPDATE_TEST_FORCE_RENAME_DENIED':'1'}); verify_new(target(c),plugins); assert (target(c)/'manual-extra.txt').is_file() and not (target(c)/'managed-old.txt').exists(); ok(5)
+          c=TESTS/'fail-before'; old=seed_old(c); snap=tree(old); run('6 fail before',c,{'CODEX_UPDATE_TEST_FAIL':PROJECT},1); assert tree(target(c))==snap; ok(6)
+          c=TESTS/'fail-after'; old=seed_old(c); snap=tree(old); run('7 fail after',c,{'CODEX_UPDATE_TEST_FAIL_AFTER_DEPLOY':PROJECT},1); assert tree(target(c))==snap; ok(7)
+          c=TESTS/'fail-overlay'; old=seed_old(c); snap=tree(old); run('8 fail overlay',c,{'CODEX_UPDATE_TEST_FORCE_RENAME_DENIED':'1','CODEX_UPDATE_TEST_FAIL_AFTER_DEPLOY':PROJECT},1); assert tree(target(c))==snap; ok(8)
+          c=TESTS/'restore-fail'; old=seed_old(c); snap=tree(old); out=run('9 retain restore sources',c,{'CODEX_UPDATE_TEST_FAIL_AFTER_DEPLOY':PROJECT,'CODEX_UPDATE_TEST_RESTORE_FAIL':PROJECT},1); rb=project_root(c)/'.Latest_Source_Rollback_R7'; dp=project_root(c)/'.Latest_Source_Displaced_R7'; assert rb.exists() and tree(rb)==snap; assert dp.exists() and tree(dp)==snap; assert '復元後SHA-256検証 PASS' not in out and '復元元は削除せず保持' in out; ok(9)
+          c=TESTS/'residual'; seed_old(c)
+          for n in ('.Latest_Source_Pending_R7','.Latest_Source_Rollback_R7','.Latest_Source_Displaced_R7'): write(project_root(c)/n/'evidence.txt',n)
+          run('10 preserve residues',c); verify_new(target(c),plugins)
+          for key in ('Latest_Source_Pending_R7_Preserved_','Latest_Source_Rollback_R7_Preserved_','Latest_Source_Displaced_R7_Preserved_'):
+              found=list(project_root(c).glob(key+'*')); assert found and (found[0]/'evidence.txt').is_file(),key
+          ok(10)
+          assert results==list(range(1,11))
+          with LOG.open('a',encoding='utf-8') as f: f.write('===== SUMMARY =====\nWINDOWS_SERVER_2022_PASS=10/10\n')
+          print('WINDOWS INSTALLER TESTS PASS 10/10')
+          '@ | Set-Content .\installer-test\run_tests.py -Encoding utf8
+
+      - name: Run exact installer scenarios on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python .\installer-test\run_tests.py
+          if($LASTEXITCODE -ne 0){throw "Windows installer tests failed: $LASTEXITCODE"}
+
+      - name: Upload Windows installer proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: csd-r7-windows-installer-tests
+          path: |
+            installer-test/windows-installer-tests.log
+            installer-test/pkg/TOOLS/install_or_update_codex_project.py
+          if-no-files-found: error
+          retention-days: 2
