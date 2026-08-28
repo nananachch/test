@@ -25,6 +25,7 @@ jobs:
       - name: Build and verify CSD R7
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: nananachch/test
         run: python .\CrescentSetupDirectorV0211R7Final\ci_build.py
 
       - name: Upload verified artifact
