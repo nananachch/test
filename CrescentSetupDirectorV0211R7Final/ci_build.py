@@ -17,7 +17,7 @@ import urllib.request
 import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-REPO_ROOT = HERE.parents[1]
+REPO_ROOT = HERE.parent
 WORK = pathlib.Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "csd_v0211_r7_final"
 ART = HERE / "build-artifact"
 LOGS = ART / "LOGS"
