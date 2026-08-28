@@ -33,7 +33,7 @@ jobs:
             'csd-r7-installer-final/installer-parts/part02.txt'='94fb5d93347989dc658375bd9d134296f593ca6799c6cd09e6fca4dbc97c2f9e'
             'csd-r7-installer-final/installer-parts/part03.txt'='209aaacd633035e851e3872d1416eb027948accd659339acc9d518724bfd7642'
             'csd-r7-installer-final/installer-parts/part04.txt'='cb67adef48f1db0cc34ec603ba5f76e0322ef4185f41eecc5f14dc156bc1ee30'
-            'csd-r7-installer-final/harness-parts/part01.txt'='8d5527a14a3dc2587ee081116ee7e394eaca775a643c5fc3575836eb260ef2b2'
+            'csd-r7-installer-final/harness-parts/part01.txt'='a562bbd34f98b6cb4fc78fb1749769c2fb09ccfef733a8ce671305953e044f86'
             'csd-r7-installer-final/harness-parts/part02.txt'='076f6d9ac5f9da2b5a0d0d8b2c5f0d439579e0a41aa59e941b1fb878edfc110f'
           }
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -62,7 +62,7 @@ jobs:
           Write-Host "INSTALLER_SHA256=$installerSha"
           Write-Host "HARNESS_SHA256=$harnessSha"
           if ($installerSha -ne '286ce4905f1101d3bf56b0e911c9c07e76520a6a54764b53ad38a75316324375') { throw 'Installer final SHA mismatch' }
-          if ($harnessSha -ne 'dd165aaa0da43b8c8df77f50ae1d1b20f43c3b9324c66148f63b1573ee35ace8') { throw 'Harness final SHA mismatch' }
+          if ($harnessSha -ne 'e39acdc0961d3309afe62e038a66f139e2e8e868b95daaa1cdb0476e9d739d9a') { throw 'Harness final SHA mismatch' }
 
       - name: Run exact installer scenarios on Windows
         run: python csd-r7-installer-final/windows_installer_harness.py
