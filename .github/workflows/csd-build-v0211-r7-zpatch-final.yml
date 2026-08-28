@@ -22,8 +22,8 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Match verified R7 Build ID
-        run: python -c "from pathlib import Path; p=Path(r'CrescentSetupDirectorV0211R7ZPatchFinal/ci_build.py'); s=p.read_text(encoding='utf-8'); old='CSD_V0211_API15_NET10_CE_BELL_GATE_SUPPORT_PRIORITY_R7_20260828'; new='CSD_V0211_API15_NET10_ALL_REPORTED_BUGFIX_R7_20260828'; assert old in s; p.write_text(s.replace(old,new), encoding='utf-8')"
+      - name: Apply verified source hotfix
+        run: python .\CrescentSetupDirectorV0211R7ZPatchFinal\apply_ci_hotfix.py
 
       - name: Build and verify CSD R7
         env:
