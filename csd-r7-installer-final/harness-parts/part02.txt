@@ -1,0 +1,5 @@
+case=BASE/'10_repair';package=make_package(case);root=case/'root';old=seed_old(root);pr=project_root(root);(pr/'.Latest_Source_Pending_R7').mkdir();(pr/'.Latest_Source_Pending_R7/stale').write_text('x');(pr/'.Latest_Source_Rollback_R7').mkdir();(pr/'.Latest_Source_Rollback_R7/stale').write_text('y');r=run(package,root,CODEX_UPDATE_TEST_DELETE_DLL_ONCE='1');require(r.returncode==0,r.stdout+r.stderr);require(list(pr.glob('Pending_R7_Preexisting_*')),'pending archive');require(list(pr.glob('Rollback_R7_Preexisting_*')),'rollback archive');require(sha(target(root)/'_BUNDLE/INSTALL/Expanded_Plugin/CrescentSetupDirector.dll')==sha(package/'PLUGIN_FILES/CrescentSetupDirector.dll'),'repair mismatch');results.append('10 DLL repair/stale preservation PASS')
+
+proof=REPO/'csd-r7-installer-final/windows-installer-proof.txt'
+proof.write_text('INSTALLER_SHA256='+sha(INSTALLER)+'\n'+'\n'.join(results)+f'\nRESULT={len(results)}/{len(results)} PASS\n',encoding='utf-8')
+print(proof.read_text())
