@@ -22,9 +22,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Pin reconstructed overlay digest
-        run: python -c "from pathlib import Path; p=Path(r'CrescentSetupDirectorV0211R7Final/ci_build.py'); s=p.read_text(encoding='utf-8'); old='9f287d22ce6cea3d100bae79abdad6bb704b0ef33c0c1ff7a0af4ea4c189e719'; new='82358fc4f9d60aa6900ec0dd737928f3ef0ea9bc11466e4fc9c7310b6e20f6be'; assert old in s; p.write_text(s.replace(old,new),encoding='utf-8')"
-
       - name: Build and verify CSD R7
         env:
           GH_TOKEN: ${{ github.token }}
