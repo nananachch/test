@@ -42,7 +42,7 @@ def make_package(case:Path):
 def run(package:Path, root:Path, **extra):
     env=os.environ.copy();env['CODEX_UPDATE_TEST_ROOT']=str(root)
     for k,v in extra.items():env[k]=str(v)
-    return subprocess.run([sys.executable,'-I','-B',str(package/'TOOLS/install_or_update_codex_project.py')],env=env,text=True,capture_output=True)
+    return subprocess.run([sys.executable,'-X','utf8','-B',str(package/'TOOLS/install_or_update_codex_project.py')],env=env,text=True,capture_output=True)
 
 def seed_old(root:Path, marker='old'):
     t=target(root);(t/'_BUNDLE/INSTALL/Expanded_Plugin').mkdir(parents=True,exist_ok=True);(t/'manual/cache').mkdir(parents=True)
