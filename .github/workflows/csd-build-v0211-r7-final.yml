@@ -1,0 +1,35 @@
+name: Build CSD v0.2.11 R7 Final
+
+on:
+  push:
+    branches:
+      - csd-build-v0211-r7-all-bugs-final
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build and verify CSD R7
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python .\CrescentSetupDirectorV0211R7Final\ci_build.py
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CSD-v0.2.11-R7-final-verified
+          path: CrescentSetupDirectorV0211R7Final/build-artifact
+          if-no-files-found: error
