@@ -1,0 +1,2 @@
+R7 final build trigger 4
+GH_REPO=nananachch/test
