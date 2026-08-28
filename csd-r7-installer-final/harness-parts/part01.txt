@@ -1,0 +1,77 @@
+from __future__ import annotations
+import os, sys, subprocess, shutil, hashlib, json
+from pathlib import Path
+
+REPO=Path.cwd()
+INSTALLER=REPO/'csd-r7-installer-final/install_or_update_codex_project.py'
+EXPECTED_INSTALLER_SHA='286ce4905f1101d3bf56b0e911c9c07e76520a6a54764b53ad38a75316324375'
+PROJECT='CrescentSetupDirector'
+BASE=REPO/'csd-r7-installer-final/windows-cases'
+
+def sha(p:Path):return hashlib.sha256(p.read_bytes()).hexdigest()
+def tree(root:Path):return {} if not root.exists() else {p.relative_to(root).as_posix():sha(p) for p in root.rglob('*') if p.is_file()}
+def require(x,msg):
+    if not x: raise AssertionError(msg)
+def target(root):return root/'Documents/Codex/Projects'/PROJECT/'Latest_Source'
+def project_root(root):return root/'Documents/Codex/Projects'/PROJECT
+
+def make_package(case:Path):
+    package=case/'package'; (package/'TOOLS').mkdir(parents=True)
+    shutil.copy2(INSTALLER,package/'TOOLS/install_or_update_codex_project.py')
+    payload=package/'PAYLOAD'/PROJECT/'Latest_Source'
+    (payload/'SOURCE').mkdir(parents=True)
+    (payload/'SOURCE/main.cs').write_text('R7 synthetic exact-installer Windows test',encoding='utf-8')
+    (payload/'REPORTS').mkdir();(payload/'REPORTS/proof.txt').write_text('proof',encoding='utf-8')
+    plug=payload/'_BUNDLE/INSTALL/Expanded_Plugin';plug.mkdir(parents=True)
+    independent=package/'PLUGIN_FILES';independent.mkdir()
+    contents={
+      'CrescentSetupDirector.dll':b'MZ synthetic R7 dll bytes',
+      'CrescentSetupDirector.deps.json':b'{"runtimeTarget":{"name":"net10.0-windows"}}',
+      'CrescentSetupDirector.json':b'{"AssemblyVersion":"0.2.11.0","DalamudApiLevel":15}',
+    }
+    for n,data in contents.items():
+      (plug/n).write_bytes(data);(independent/n).write_bytes(data)
+    (payload/'_BUNDLE/INSTALL/Previous').mkdir(parents=True);(payload/'_BUNDLE/INSTALL/Previous/README.txt').write_text('none')
+    man=package/'MANIFEST';man.mkdir()
+    payload_files={p.relative_to(package/'PAYLOAD').as_posix():sha(p) for p in (package/'PAYLOAD').rglob('*') if p.is_file()}
+    plugin_files={p.name:sha(p) for p in independent.iterdir() if p.is_file()}
+    (man/'payload-sha256.json').write_text(json.dumps({'files':payload_files},indent=2),encoding='utf-8')
+    (man/'plugin-files-sha256.json').write_text(json.dumps({'files':plugin_files},indent=2),encoding='utf-8')
+    return package
+
+def run(package:Path, root:Path, **extra):
+    env=os.environ.copy();env['CODEX_UPDATE_TEST_ROOT']=str(root)
+    for k,v in extra.items():env[k]=str(v)
+    return subprocess.run([sys.executable,'-I','-B',str(package/'TOOLS/install_or_update_codex_project.py')],env=env,text=True,capture_output=True)
+
+def seed_old(root:Path, marker='old'):
+    t=target(root);(t/'_BUNDLE/INSTALL/Expanded_Plugin').mkdir(parents=True,exist_ok=True);(t/'manual/cache').mkdir(parents=True)
+    (t/'old.txt').write_text('old '+marker);(t/'settings.json').write_text('{"unknown":true}');(t/'manual/cache/data.bin').write_bytes(b'user-data')
+    for n in ['CrescentSetupDirector.dll','CrescentSetupDirector.deps.json','CrescentSetupDirector.json']:(t/'_BUNDLE/INSTALL/Expanded_Plugin'/n).write_text('old '+n)
+    return tree(t)
+
+require(sha(INSTALLER)==EXPECTED_INSTALLER_SHA,f'installer SHA mismatch {sha(INSTALLER)}')
+shutil.rmtree(BASE,ignore_errors=True);BASE.mkdir(parents=True)
+results=[]
+# 1 long-path fresh install
+case=BASE/('01_fresh_'+'longsegment_'*7);package=make_package(case);root=case/'testroot';r=run(package,root);require(r.returncode==0,r.stdout+r.stderr);require((target(root)/'_BUNDLE/INSTALL/Expanded_Plugin/CrescentSetupDirector.dll').is_file(),'fresh dll');results.append('01 long-path fresh PASS')
+# 2 update
+case=BASE/'02_update';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root);require(r.returncode==0,r.stdout+r.stderr);require(tree(project_root(root)/'Previous_Latest_Source')==old,'Previous mismatch');require((target(root)/'manual/cache/data.bin').read_bytes()==b'user-data','manual data lost');results.append('02 update preserve PASS')
+# 3 rerun
+r=run(package,root);require(r.returncode==0,r.stdout+r.stderr);require(list(project_root(root).glob('Previous_Latest_Source_Before_R7_*')),'Previous archive missing');results.append('03 rerun PASS')
+# 4 DLL missing package
+case=BASE/'04_dll_missing';package=make_package(case);root=case/'root';old=seed_old(root);dll=package/'PLUGIN_FILES/CrescentSetupDirector.dll';hold=dll.with_suffix('.hold');dll.rename(hold)
+try:r=run(package,root)
+finally:hold.rename(dll)
+require(r.returncode!=0,'missing DLL should fail');require(tree(target(root))==old,'missing DLL mutated target');results.append('04 DLL missing safe-stop PASS')
+# 5 simulated WinError 5 on Windows before backup
+case=BASE/'05_winerror5';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root,CODEX_UPDATE_TEST_FORCE_BACKUP_DENIED='1');require(r.returncode!=0,'WinError5 should fail');require(tree(target(root))==old,'WinError5 mutated target');require('PermissionError' in r.stdout+r.stderr,'PermissionError not observed');results.append('05 Windows WinError5 safe-stop PASS')
+# 6 after backup
+case=BASE/'06_after_backup';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root,CODEX_UPDATE_TEST_FAIL_STAGE='after_backup');require(r.returncode!=0,'after backup fail');require(tree(target(root))==old,'after backup mutated target');require((project_root(root)/'.Latest_Source_Rollback_R7').exists(),'rollback missing');results.append('06 after-backup failure PASS')
+# 7 overlay failure exact restore
+case=BASE/'07_overlay';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root,CODEX_UPDATE_TEST_FAIL_STAGE='during_overlay',CODEX_UPDATE_TEST_FAIL_OVERLAY_AFTER='4');require(r.returncode!=0,'overlay fail');require(tree(target(root))==old,'overlay restore mismatch');results.append('07 overlay exact restore PASS')
+# 8 post-deploy in-place fallback
+case=BASE/'08_inplace';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root,CODEX_UPDATE_TEST_FAIL_STAGE='after_deploy',CODEX_UPDATE_TEST_FORCE_REMOVE_DENIED='1');require(r.returncode!=0,'post-deploy fail');require(tree(target(root))==old,'inplace restore mismatch');results.append('08 in-place restore PASS')
+# 9 restore failure retention
+case=BASE/'09_restore_fail';package=make_package(case);root=case/'root';old=seed_old(root);r=run(package,root,CODEX_UPDATE_TEST_FAIL_STAGE='after_deploy',CODEX_UPDATE_TEST_FAIL_RESTORE='1');require(r.returncode!=0,'restore fail expected');require((project_root(root)/'.Latest_Source_Rollback_R7').exists(),'rollback not retained');require(list(project_root(root).glob('.Latest_Source_Displaced_R7_*')),'displaced not retained');results.append('09 restore-failure retention PASS')
+# 10 DLL one-time disappearance and stale preservation
