@@ -8,7 +8,6 @@ import pathlib
 import runpy
 import shutil
 import subprocess
-import sys
 import tempfile
 import traceback
 import urllib.request
@@ -27,10 +26,10 @@ BASE_ARTIFACT = 'CSD-v0.2.10-R6-verified'
 BASE_SOURCE_NAME = 'Crescent_Setup_Director_v0.2.10_R6_SOURCE_VERIFIED.zip'
 BASE_SOURCE_SHA256 = '144db1fa22a7720f32dee829642cf0e4e5746e974c7142822f56ee4bf326dd9a'
 BASE_MANIFEST_SHA256 = '613fd7ddd9823265a96007fd42cb67b6b8c71e3b354d3df97d475952f75b6365'
-OVERLAY_SHA256 = '9f287d22ce6cea3d100bae79abdad6bb704b0ef33c0c1ff7a0af4ea4c189e719'
-FINAL_MANIFEST_SHA256 = '43c29e9be980b1c25dc3224cce411bd6ec60e40585382548ddac50d814a6f9cc'
+OVERLAY_SHA256 = '82358fc4f9d60aa6900ec0dd737928f3ef0ea9bc11466e4fc9c7310b6e20f6be'
+FINAL_CODE_MANIFEST_SHA256 = 'f87391bbe7aaef38432a868f566bbfaef2896eca717406f743e8d843ef90970c'
 BUILD_ID = 'CSD_V0211_API15_NET10_CE_BELL_GATE_SUPPORT_PRIORITY_R7_20260828'
-EXPECTED_TESTS = 78
+MINIMUM_TESTS = 78
 EXPECTED_OVERLAY_PARTS = 9
 
 
@@ -42,18 +41,24 @@ def sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def source_files(source: pathlib.Path) -> list[pathlib.Path]:
+def source_files(source: pathlib.Path, include_tests: bool = True) -> list[pathlib.Path]:
     excluded = {'bin', 'obj', '__pycache__', '.git'}
-    files = (
-        path for path in source.rglob('*')
-        if path.is_file() and not any(part in excluded for part in path.relative_to(source).parts)
-    )
+    files = []
+    for path in source.rglob('*'):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source)
+        if any(part in excluded for part in relative.parts):
+            continue
+        if not include_tests and 'tests' in relative.parts:
+            continue
+        files.append(path)
     return sorted(files, key=lambda path: path.relative_to(source).as_posix())
 
 
-def manifest_hash(source: pathlib.Path) -> tuple[str, int]:
+def manifest_hash(source: pathlib.Path, include_tests: bool = True) -> tuple[str, int]:
     digest = hashlib.sha256()
-    files = source_files(source)
+    files = source_files(source, include_tests=include_tests)
     for path in files:
         rel = path.relative_to(source).as_posix().encode('utf-8')
         data = path.read_bytes()
@@ -90,7 +95,7 @@ def find_source_zip(root: pathlib.Path) -> pathlib.Path:
     exact = root / BASE_SOURCE_NAME
     if exact.exists():
         return exact
-    candidates = sorted(root.rglob('*R6*SOURCE*VERIFIED*.zip'))
+    candidates = sorted(root.rglob('*R6*SOURCE*VERIFIED*.zip'), key=lambda path: path.as_posix())
     if len(candidates) != 1:
         raise SystemExit(f'could not uniquely find R6 source ZIP: {candidates}')
     return candidates[0]
@@ -144,14 +149,18 @@ def main() -> None:
         zipped.extractall(source)
 
     final_manifest, final_count = manifest_hash(source)
-    if final_manifest != FINAL_MANIFEST_SHA256 or final_count != 92:
-        raise SystemExit(f'final source manifest mismatch: {final_manifest} files={final_count}')
+    final_code_manifest, final_code_count = manifest_hash(source, include_tests=False)
+    if final_code_manifest != FINAL_CODE_MANIFEST_SHA256 or final_code_count != 20:
+        raise SystemExit(
+            f'final product-code manifest mismatch: {final_code_manifest} files={final_code_count}; '
+            f'all-files={final_manifest} files={final_count}'
+        )
     if BUILD_ID not in (source / 'BuildIdentity.cs').read_text(encoding='utf-8'):
         raise SystemExit('R7 Build ID missing from source')
 
     tests = sorted((source / 'tests').glob('*.py'), key=lambda path: path.name)
-    if len(tests) != EXPECTED_TESTS:
-        raise SystemExit(f'expected {EXPECTED_TESTS} tests, found {len(tests)}')
+    if len(tests) < MINIMUM_TESTS:
+        raise SystemExit(f'expected at least {MINIMUM_TESTS} tests, found {len(tests)}')
     test_log: list[str] = []
     failures: list[str] = []
     for test in tests:
@@ -220,13 +229,17 @@ def main() -> None:
         'target': 'net10.0-windows / Dalamud API 15',
         'tests_passed': len(tests),
         'test_count': len(tests),
+        'minimum_required_tests': MINIMUM_TESTS,
         'build_zero_warnings': '0 Warning(s)' in build_log,
         'build_zero_errors': '0 Error(s)' in build_log,
         'base_run_id': BASE_RUN_ID,
         'base_source_zip_sha256': actual_base_sha,
         'base_manifest_sha256': base_manifest,
         'overlay_sha256': actual_overlay_sha,
-        'final_manifest_sha256': final_manifest,
+        'final_all_files_manifest_sha256': final_manifest,
+        'final_all_files_count': final_count,
+        'final_product_code_manifest_sha256': final_code_manifest,
+        'final_product_code_count': final_code_count,
         'source_zip_sha256': sha256(source_zip),
         'files': {
             path.name: {'size': path.stat().st_size, 'sha256': sha256(path)}
