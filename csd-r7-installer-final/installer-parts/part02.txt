@@ -1,0 +1,166 @@
+    try:
+        retry(f"既存{path.name}の別名保全", lambda: path.rename(destination))
+    except Exception:
+        expected = tree_hashes(path)
+        retry(f"既存{path.name}のコピー保全", lambda: shutil.copytree(path, destination))
+        verify_hashes(destination, expected, f"既存{path.name}コピー", exact=True)
+        # 原本は使用中の可能性があるため削除しない。
+        destination = unique_path(parent, prefix + "_COPY") if destination == path else destination
+    emit(f"既存残骸を別名保全しました: {destination}")
+    return destination
+
+
+def snapshot_tree(source: Path, destination: Path, label: str) -> dict[str, str]:
+    expected = tree_hashes(source)
+    if os.environ.get("CODEX_UPDATE_TEST_FORCE_BACKUP_DENIED"):
+        raise PermissionError(5, "試験用アクセス拒否（バックアップ作成前）", str(source))
+    retry(label, lambda: shutil.copytree(source, destination))
+    verify_hashes(destination, expected, label + "後", exact=True)
+    emit(f"{label}・全SHA-256検証 PASS ({len(expected)} files)")
+    return expected
+
+
+def remove_files_not_in_snapshot(target: Path, current: dict[str, str], old: dict[str, str]) -> None:
+    for rel in sorted(set(current) - set(old), key=str.casefold, reverse=True):
+        path = target / Path(rel)
+        if path.exists():
+            remove_path(path)
+    for directory in sorted((p for p in target.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def restore_exact(target: Path, rollback: Path, old_hashes: dict[str, str], deployed_hashes: dict[str, str]) -> None:
+    if os.environ.get("CODEX_UPDATE_TEST_FAIL_RESTORE"):
+        raise RuntimeError("試験用: 復元不能を再現。rollback/displacedを保持して安全停止します。")
+
+    force_in_place = bool(os.environ.get("CODEX_UPDATE_TEST_FORCE_REMOVE_DENIED"))
+    if not force_in_place:
+        try:
+            remove_path(target)
+            retry("旧ワークスペースの完全復元", lambda: shutil.copytree(rollback, target))
+            verify_hashes(target, old_hashes, "完全復元後", exact=True)
+            emit("完全復元・全SHA-256検証 PASS")
+            return
+        except Exception as exc:
+            emit(f"完全置換復元を実行できないため、検証付きin-place復元へ切り替えます: {exc}")
+
+    target.mkdir(parents=True, exist_ok=True)
+    remove_files_not_in_snapshot(target, deployed_hashes, old_hashes)
+    copy_tree_overlay(rollback, target)
+    remove_files_not_in_snapshot(target, tree_hashes(target), old_hashes)
+    verify_hashes(target, old_hashes, "in-place復元後", exact=True)
+    emit("in-place復元・全SHA-256検証 PASS")
+
+
+def verify_plugin(root: Path, expected: dict[str, str], label: str) -> None:
+    verify_hashes(root, expected, label, exact=False)
+    dll = root / DLL_NAME
+    if not dll.is_file() or dll.stat().st_size <= 0:
+        raise RuntimeError(f"{label}: DLLがありません: {dll}")
+
+
+def write_plugin_proof(target: Path, expected: dict[str, str]) -> None:
+    lines = [
+        "STATUS=SUCCESS",
+        f"INSTALLER_BUILD_ID={INSTALLER_BUILD_ID}",
+        f"PLUGIN_BUILD_ID={PLUGIN_BUILD_ID}",
+        f"TIME={datetime.now().isoformat(timespec='seconds')}",
+        f"TARGET={target}",
+    ]
+    for rel in sorted(expected, key=str.casefold):
+        path = target / rel
+        lines.append(f"FILE={rel}|SIZE={path.stat().st_size}|SHA256={digest(path)}")
+    (target / "PLUGIN_INSTALL_PROOF.txt").write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+
+
+def ensure_plugin(target: Path, source: Path, expected: dict[str, str]) -> None:
+    verify_plugin(source, expected, "独立PLUGIN_FILES正本")
+    target.mkdir(parents=True, exist_ok=True)
+    deleted_once = False
+    wait_seconds = 0.05 if os.environ.get("CODEX_UPDATE_TEST_ROOT") else 3.0
+    last: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            for rel in sorted(expected, key=str.casefold):
+                durable_copy(source / rel, target / rel)
+            verify_plugin(target, expected, "最終プラグイン配置直後")
+            if os.environ.get("CODEX_UPDATE_TEST_DELETE_DLL_ONCE") and not deleted_once:
+                (target / DLL_NAME).unlink(missing_ok=True)
+                deleted_once = True
+                emit("試験用にDLLを一度削除しました。自動再配置を確認します。")
+                raise RuntimeError("試験用DLL一時欠損")
+            time.sleep(wait_seconds)
+            verify_plugin(target, expected, "DLL保持待機後")
+            write_plugin_proof(target, expected)
+            verify_plugin(target, expected, "証明書作成後")
+            emit("最終DLL配置・保持・SHA-256検証 PASS")
+            return
+        except Exception as exc:
+            last = exc
+            emit(f"最終プラグイン配置 {attempt}/3 に失敗: {exc}")
+            if attempt < 3:
+                time.sleep(0.05 if os.environ.get("CODEX_UPDATE_TEST_ROOT") else 1)
+    raise RuntimeError(f"最終DLLを保持できませんでした: {last}")
+
+
+def preserve_previous_plugin(pending: Path, target: Path, previous_full: Path) -> None:
+    previous_dir = pending / "_BUNDLE" / "INSTALL" / "Previous"
+    remove_path(previous_dir)
+    previous_dir.mkdir(parents=True, exist_ok=True)
+    candidates = [
+        target / "_BUNDLE" / "INSTALL" / "Expanded_Plugin",
+        previous_full / "_BUNDLE" / "INSTALL" / "Expanded_Plugin",
+    ]
+    copied = 0
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        for path in sorted(candidate.iterdir(), key=lambda p: p.name.casefold()):
+            if path.is_file():
+                durable_copy(path, previous_dir / path.name)
+                copied += 1
+        if copied:
+            break
+    if not copied:
+        (previous_dir / "README.txt").write_text("利用可能な直前プラグインはありません。\n", encoding="utf-8-sig")
+
+
+def commit_previous(project_root: Path, rollback: Path, previous_full: Path) -> None:
+    if not rollback.exists():
+        return
+    if previous_full.exists():
+        archived = unique_path(project_root, f"Previous_Latest_Source_Before_{REVISION}")
+        retry("既存Previousの別名保全", lambda: previous_full.rename(archived))
+        emit(f"既存Previousを別名保全しました: {archived}")
+    retry("今回の直前状態をPreviousへ確定", lambda: rollback.rename(previous_full))
+    emit(f"直前ワークスペースを保存しました: {previous_full}")
+
+
+def write_result(status: str, detail: str, log_path: Path | None = None, *, recovery: str = "") -> None:
+    lines = [
+        f"STATUS={status}",
+        f"INSTALLER_BUILD_ID={INSTALLER_BUILD_ID}",
+        f"PLUGIN_BUILD_ID={PLUGIN_BUILD_ID}",
+        f"PROJECT={PROJECT}",
+        f"TIME={datetime.now().isoformat(timespec='seconds')}",
+        f"DETAIL={detail}",
+    ]
+    if recovery:
+        lines.append(f"RECOVERY={recovery}")
+    if DOCS is not None:
+        lines.append(f"DOCUMENTS={DOCS}")
+    if log_path is not None:
+        lines.append(f"LOG={log_path}")
+    text = "\n".join(lines) + "\n"
+    paths: list[Path] = []
+    if RESULT_PATH is not None:
+        paths.append(RESULT_PATH)
+    if DOCS is not None:
+        projects = DOCS / "Codex" / "Projects"
+        paths.extend([projects / RESULT_NAME, projects / PROJECT / "CODEX_UPDATE_LAST_RESULT.txt"])
+    for path in paths:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
