@@ -1,0 +1,104 @@
+name: CSD R7 isolated build
+
+on:
+  push:
+    branches: [ csd-r7-build-20260828 ]
+    paths:
+      - 'csd-r7/**'
+      - '.github/workflows/csd-r7-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v5
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Reassemble and verify exact source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "WORKSPACE=$pwd"
+          $parts = Get-ChildItem .\csd-r7\parts\part*.txt | Sort-Object Name
+          if ($parts.Count -ne 9) { throw "Expected 9 parts, found $($parts.Count)" }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes("$pwd\csd-r7\source.zip", [Convert]::FromBase64String($b64))
+          $actual = (Get-FileHash .\csd-r7\source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '690045c4cd24c2a31abe9cb6768d5887d975b2cfa707564eee1469fad0ed3ae4'
+          Write-Host "SOURCE_ZIP_SHA256=$actual"
+          if ($actual -ne $expected) { throw "Source ZIP SHA mismatch: expected=$expected actual=$actual" }
+          Expand-Archive -Force .\csd-r7\source.zip .\csd-r7\src
+
+      - name: Download Dalamud API 15
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dev = "$env:AppData\XIVLauncher\addon\Hooks\dev"
+          New-Item -ItemType Directory -Force $dev | Out-Null
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/api15/latest.zip -OutFile .\csd-r7\dalamud-api15.zip
+          Expand-Archive -Force .\csd-r7\dalamud-api15.zip $dev
+          if (!(Test-Path "$dev\Dalamud.dll")) { throw "Dalamud.dll not found in API15 dev path" }
+          Write-Host "DALAMUD_DLL_SHA256=$((Get-FileHash "$dev\Dalamud.dll" -Algorithm SHA256).Hash.ToLowerInvariant())"
+
+      - name: Restore and build Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet --info 2>&1 | Tee-Object .\csd-r7\dotnet-info.txt
+          dotnet restore .\csd-r7\src\CrescentSetupDirector.csproj --locked-mode 2>&1 | Tee-Object .\csd-r7\restore.log
+          if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed: $LASTEXITCODE" }
+          dotnet build .\csd-r7\src\CrescentSetupDirector.csproj --configuration Release --no-restore 2>&1 | Tee-Object .\csd-r7\build.log
+          if ($LASTEXITCODE -ne 0) { throw "dotnet build failed: $LASTEXITCODE" }
+
+      - name: Verify and collect output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dll = Get-ChildItem .\csd-r7\src -Recurse -Filter CrescentSetupDirector.dll |
+            Where-Object { $_.FullName -match '[\\/]bin[\\/]Release[\\/]' } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (!$dll) { throw "Release CrescentSetupDirector.dll not found" }
+          $out = '.\csd-r7\artifact'
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item "$($dll.Directory.FullName)\*" $out -Recurse -Force
+          Copy-Item .\csd-r7\build.log, .\csd-r7\restore.log, .\csd-r7\dotnet-info.txt $out -Force
+          $bytes = [IO.File]::ReadAllBytes($dll.FullName)
+          $unicode = [Text.Encoding]::Unicode.GetString($bytes)
+          $utf8 = [Text.Encoding]::UTF8.GetString($bytes)
+          $buildId = 'CSD_V0211_API15_NET10_POT_FINAL_RECOVERY_R7_20260828'
+          if (($unicode -notmatch [regex]::Escape($buildId)) -and ($utf8 -notmatch [regex]::Escape($buildId))) {
+            throw "Plugin Build ID not found in DLL"
+          }
+          $fi = [Diagnostics.FileVersionInfo]::GetVersionInfo($dll.FullName)
+          $meta = [ordered]@{
+            source_zip_sha256 = '690045c4cd24c2a31abe9cb6768d5887d975b2cfa707564eee1469fad0ed3ae4'
+            plugin_build_id = $buildId
+            dll_path = $dll.FullName
+            dll_sha256 = (Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            dll_size = $dll.Length
+            file_version = $fi.FileVersion
+            product_version = $fi.ProductVersion
+            original_filename = $fi.OriginalFilename
+            api = 15
+            target = 'net10.0-windows'
+          }
+          $meta | ConvertTo-Json -Depth 4 | Set-Content "$out\build-metadata.json" -Encoding utf8
+          Get-Content "$out\build-metadata.json"
+
+      - name: Upload verified Release output
+        uses: actions/upload-artifact@v4
+        with:
+          name: csd-r7-release
+          path: csd-r7/artifact
+          if-no-files-found: error
+          retention-days: 2
