@@ -31,7 +31,10 @@ jobs:
           $parts = Get-ChildItem .\csd-r7\parts\part*.txt | Sort-Object Name
           if ($parts.Count -ne 9) { throw "Expected 9 parts, found $($parts.Count)" }
           $raw = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          $b64 = [regex]::Replace($raw, '[^A-Za-z0-9+/=]', '')
+          $core = [regex]::Replace($raw, '[^A-Za-z0-9+/]', '')
+          $padCount = (4 - ($core.Length % 4)) % 4
+          $b64 = $core + ('=' * $padCount)
+          Write-Host "BASE64_CORE_LENGTH=$($core.Length) PAD=$padCount FINAL_LENGTH=$($b64.Length)"
           [IO.File]::WriteAllBytes("$pwd\csd-r7\source.zip", [Convert]::FromBase64String($b64))
           $actual = (Get-FileHash .\csd-r7\source.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = '690045c4cd24c2a31abe9cb6768d5887d975b2cfa707564eee1469fad0ed3ae4'
