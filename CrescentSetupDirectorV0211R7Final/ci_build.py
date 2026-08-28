@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent
-REPO_ROOT = HERE.parents[1]
+REPO_ROOT = HERE.parent
 WORK = pathlib.Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir())) / 'csd_v0211_r7_overlay'
 ART = HERE / 'build-artifact'
 LOGS = ART / 'LOGS'
@@ -44,10 +44,11 @@ def sha256(path: pathlib.Path) -> str:
 
 def source_files(source: pathlib.Path) -> list[pathlib.Path]:
     excluded = {'bin', 'obj', '__pycache__', '.git'}
-    return sorted(
+    files = (
         path for path in source.rglob('*')
         if path.is_file() and not any(part in excluded for part in path.relative_to(source).parts)
     )
+    return sorted(files, key=lambda path: path.relative_to(source).as_posix())
 
 
 def manifest_hash(source: pathlib.Path) -> tuple[str, int]:
@@ -127,7 +128,7 @@ def main() -> None:
     if base_manifest != BASE_MANIFEST_SHA256 or base_count != 88:
         raise SystemExit(f'base source manifest mismatch: {base_manifest} files={base_count}')
 
-    overlay_parts = sorted((HERE / 'overlay_b64').glob('overlay.b64.*'))
+    overlay_parts = sorted((HERE / 'overlay_b64').glob('overlay.b64.*'), key=lambda path: path.name)
     if len(overlay_parts) != EXPECTED_OVERLAY_PARTS:
         raise SystemExit(f'expected {EXPECTED_OVERLAY_PARTS} overlay chunks, found {len(overlay_parts)}')
     encoded = ''.join(part.read_text(encoding='ascii').strip() for part in overlay_parts)
@@ -148,7 +149,7 @@ def main() -> None:
     if BUILD_ID not in (source / 'BuildIdentity.cs').read_text(encoding='utf-8'):
         raise SystemExit('R7 Build ID missing from source')
 
-    tests = sorted((source / 'tests').glob('*.py'))
+    tests = sorted((source / 'tests').glob('*.py'), key=lambda path: path.name)
     if len(tests) != EXPECTED_TESTS:
         raise SystemExit(f'expected {EXPECTED_TESTS} tests, found {len(tests)}')
     test_log: list[str] = []
@@ -229,7 +230,7 @@ def main() -> None:
         'source_zip_sha256': sha256(source_zip),
         'files': {
             path.name: {'size': path.stat().st_size, 'sha256': sha256(path)}
-            for path in sorted(PLUGIN.iterdir())
+            for path in sorted(PLUGIN.iterdir(), key=lambda item: item.name)
         },
     }
     (REPORTS / 'BUILD_PROOF.json').write_text(json.dumps(proof, ensure_ascii=False, indent=2), encoding='utf-8')
